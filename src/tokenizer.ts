@@ -40,5 +40,4 @@ export class Tokenizer {
     }
     return pieces.join("").replaceAll("\u2581", " ").trim();
   }
-
 }

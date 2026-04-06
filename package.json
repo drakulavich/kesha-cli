@@ -44,7 +44,8 @@
     "bun": ">=1.3.0"
   },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "typescript": "^6.0.2"
   },
   "dependencies": {
     "onnxruntime-node": "^1.24.0"

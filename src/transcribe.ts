@@ -10,7 +10,6 @@ import {
 import { Tokenizer } from "./tokenizer";
 import { join } from "path";
 
-/** Transpose a [rows, cols] matrix stored as flat Float32Array to [cols, rows]. */
 function transpose2D(data: Float32Array, rows: number, cols: number): Float32Array {
   const out = new Float32Array(cols * rows);
   for (let c = 0; c < cols; c++) {

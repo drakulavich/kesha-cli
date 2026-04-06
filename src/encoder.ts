@@ -26,4 +26,3 @@ export async function encode(
 
   return { encoderOutput, encodedLength };
 }
-
