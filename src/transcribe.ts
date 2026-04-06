@@ -40,7 +40,7 @@ export async function transcribe(audioPath: string, opts: TranscribeOptions = {}
   }
 
   const noCache = opts.noCache ?? false;
-  const modelDir = await ensureModel("v3", noCache);
+  const modelDir = await ensureModel(noCache);
   const tokenizer = await Tokenizer.fromFile(join(modelDir, "vocab.txt"));
 
   await initPreprocessor(modelDir);

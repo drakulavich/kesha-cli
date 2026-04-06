@@ -2,12 +2,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { existsSync, mkdirSync } from "fs";
 
-export type ModelVersion = "v2" | "v3";
-
-export const HF_REPOS: Record<ModelVersion, string> = {
-  v2: "istupakov/parakeet-tdt-0.6b-v2-onnx",
-  v3: "istupakov/parakeet-tdt-0.6b-v3-onnx",
-};
+export const HF_REPO = "istupakov/parakeet-tdt-0.6b-v3-onnx";
 
 export const MODEL_FILES = [
   "encoder-model.onnx",
@@ -17,28 +12,26 @@ export const MODEL_FILES = [
   "vocab.txt",
 ];
 
-export function getModelDir(version: ModelVersion): string {
-  return join(homedir(), ".cache", "parakeet", version);
+export function getModelDir(): string {
+  return join(homedir(), ".cache", "parakeet", "v3");
 }
 
-export function isModelCached(version: ModelVersion): boolean {
-  const dir = getModelDir(version);
+export function isModelCached(): boolean {
+  const dir = getModelDir();
   return MODEL_FILES.every((f) => existsSync(join(dir, f)));
 }
 
-export async function ensureModel(version: ModelVersion, noCache = false): Promise<string> {
-  const dir = getModelDir(version);
+export async function ensureModel(noCache = false): Promise<string> {
+  const dir = getModelDir();
 
-  if (!noCache && isModelCached(version)) {
+  if (!noCache && isModelCached()) {
     return dir;
   }
 
   mkdirSync(dir, { recursive: true });
 
-  const repo = HF_REPOS[version];
-
   for (const file of MODEL_FILES) {
-    const url = `https://huggingface.co/${repo}/resolve/main/${file}`;
+    const url = `https://huggingface.co/${HF_REPO}/resolve/main/${file}`;
     const dest = join(dir, file);
 
     if (!noCache && existsSync(dest)) continue;

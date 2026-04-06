@@ -1,16 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { getModelDir, MODEL_FILES, HF_REPOS } from "../models";
+import { getModelDir, MODEL_FILES, HF_REPO } from "../models";
 import { join } from "path";
 import { homedir } from "os";
 
 describe("models", () => {
-  test("getModelDir returns correct cache path for v2", () => {
-    const dir = getModelDir("v2");
-    expect(dir).toBe(join(homedir(), ".cache", "parakeet", "v2"));
-  });
-
-  test("getModelDir returns correct cache path for v3", () => {
-    const dir = getModelDir("v3");
+  test("getModelDir returns correct cache path", () => {
+    const dir = getModelDir();
     expect(dir).toBe(join(homedir(), ".cache", "parakeet", "v3"));
   });
 
@@ -22,8 +17,7 @@ describe("models", () => {
     expect(MODEL_FILES).toContain("vocab.txt");
   });
 
-  test("HF_REPOS maps versions to repo IDs", () => {
-    expect(HF_REPOS.v2).toBe("istupakov/parakeet-tdt-0.6b-v2-onnx");
-    expect(HF_REPOS.v3).toBe("istupakov/parakeet-tdt-0.6b-v3-onnx");
+  test("HF_REPO points to v3 ONNX repo", () => {
+    expect(HF_REPO).toBe("istupakov/parakeet-tdt-0.6b-v3-onnx");
   });
 });

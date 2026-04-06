@@ -4,7 +4,7 @@ import { isModelCached } from "../../src/models";
 import { existsSync } from "fs";
 import { spawnSync } from "child_process";
 
-const modelsReady = isModelCached("v2") && isModelCached("v3");
+const modelsReady = isModelCached();
 const fixtureExists = existsSync("fixtures/hello-english.wav");
 
 // Language routing produces a non-empty transcription only when the fixture
@@ -13,7 +13,7 @@ const fixtureExists = existsSync("fixtures/hello-english.wav");
 const hasSpeech = spawnSync("which", ["espeak-ng"]).status === 0;
 
 describe.skipIf(!modelsReady || !fixtureExists)("e2e-language-routing", () => {
-  test("auto-detects English and routes to v2", async () => {
+  test("transcribes English audio", async () => {
     const text = await transcribe("fixtures/hello-english.wav");
     expect(typeof text).toBe("string");
     if (hasSpeech) {
