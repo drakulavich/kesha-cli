@@ -8,7 +8,7 @@ const fixtureExists = existsSync("fixtures/hello-english.wav");
 
 describe.skipIf(!fixtureExists)("e2e-english", () => {
   test("transcribes English audio with v2 model", async () => {
-    const text = await transcribe("fixtures/hello-english.wav", { lang: "en" });
+    const text = await transcribe("fixtures/hello-english.wav");
     expect(typeof text).toBe("string");
     if (modelsReady) {
       expect(text.length).toBeGreaterThan(0);

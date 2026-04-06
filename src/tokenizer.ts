@@ -41,19 +41,4 @@ export class Tokenizer {
     return pieces.join("").replaceAll("\u2581", " ").trim();
   }
 
-  isAsciiDominant(tokenIds: number[], threshold = 0.9): boolean {
-    const nonBlank = tokenIds.filter((id) => id !== this.blankId);
-    if (nonBlank.length === 0) return false;
-
-    let asciiCount = 0;
-    for (const id of nonBlank) {
-      const token = this.idToToken.get(id) ?? "";
-      const cleaned = token.replaceAll("\u2581", "");
-      if (cleaned.length > 0 && /^[\x00-\x7F]+$/.test(cleaned)) {
-        asciiCount++;
-      }
-    }
-
-    return asciiCount / nonBlank.length >= threshold;
-  }
 }

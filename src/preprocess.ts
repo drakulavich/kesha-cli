@@ -2,6 +2,8 @@ import * as ort from "onnxruntime-node";
 import { join } from "path";
 import { ensureOrtBackend } from "./ort-backend-fix";
 
+const NORM_EPSILON = 1e-10;
+
 let session: ort.InferenceSession | null = null;
 
 export async function initPreprocessor(modelDir: string): Promise<void> {
@@ -41,7 +43,7 @@ export async function preprocess(audio: Float32Array): Promise<{ features: ort.T
 
     const mean = sum / actualLength;
     const variance = sumSq / actualLength - mean * mean;
-    const std = Math.sqrt(Math.max(variance, 1e-10));
+    const std = Math.sqrt(Math.max(variance, NORM_EPSILON));
 
     for (let t = 0; t < T; t++) {
       normalized[f * T + t] = t < actualLength ? (melData[f * T + t] - mean) / std : 0;
@@ -54,6 +56,3 @@ export async function preprocess(audio: Float32Array): Promise<{ features: ort.T
   return { features: featureTensor, length: outputLength };
 }
 
-export function releasePreprocessor(): void {
-  session = null;
-}

@@ -38,8 +38,4 @@ describe("tokenizer", () => {
     expect(text).toBe("cats");
   });
 
-  test("isAsciiDominant returns true for ASCII tokens", async () => {
-    const tok = await Tokenizer.fromFile("fixtures/test-vocab.txt");
-    expect(tok.isAsciiDominant([0, 1, 2])).toBe(true);
-  });
 });

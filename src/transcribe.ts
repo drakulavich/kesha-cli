@@ -10,6 +10,17 @@ import {
 import { Tokenizer } from "./tokenizer";
 import { join } from "path";
 
+/** Transpose a [rows, cols] matrix stored as flat Float32Array to [cols, rows]. */
+function transpose2D(data: Float32Array, rows: number, cols: number): Float32Array {
+  const out = new Float32Array(cols * rows);
+  for (let c = 0; c < cols; c++) {
+    for (let r = 0; r < rows; r++) {
+      out[c * rows + r] = data[r * cols + c];
+    }
+  }
+  return out;
+}
+
 // Parakeet TDT 0.6B decoder state dimensions (from ONNX model input shapes)
 const DECODER_LAYERS = 2;
 const DECODER_HIDDEN = 640;
@@ -18,10 +29,13 @@ export interface TranscribeOptions {
   noCache?: boolean;
 }
 
+// Minimum 0.1s of audio at 16kHz to produce meaningful output
+const MIN_AUDIO_SAMPLES = 1600;
+
 export async function transcribe(audioPath: string, opts: TranscribeOptions = {}): Promise<string> {
   const audio = await convertToFloat32PCM(audioPath);
 
-  if (audio.length < 1600) {
+  if (audio.length < MIN_AUDIO_SAMPLES) {
     return "";
   }
 
@@ -41,13 +55,7 @@ export async function transcribe(audioPath: string, opts: TranscribeOptions = {}
   const D = dims[1];
   const T = dims[2];
 
-  // Transpose from [1, D, T] to [T, D] so each frame is contiguous
-  const transposed = new Float32Array(T * D);
-  for (let t = 0; t < T; t++) {
-    for (let d = 0; d < D; d++) {
-      transposed[t * D + d] = encoderData[d * T + t];
-    }
-  }
+  const transposed = transpose2D(encoderData, D, T);
 
   const session = createOnnxDecoderSession(
     tokenizer.vocabSize,

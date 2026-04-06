@@ -30,6 +30,7 @@ export async function convertToFloat32PCM(inputPath: string): Promise<Float32Arr
     const raw = await Bun.file(tmpPath).arrayBuffer();
     return new Float32Array(raw);
   } finally {
+    // Best-effort cleanup; file may already be gone
     try { unlinkSync(tmpPath); } catch {}
   }
 }

@@ -27,6 +27,3 @@ export async function encode(
   return { encoderOutput, encodedLength };
 }
 
-export function releaseEncoder(): void {
-  session = null;
-}

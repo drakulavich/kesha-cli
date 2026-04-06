@@ -28,8 +28,9 @@ async function main(): Promise<void> {
   try {
     const text = await transcribe(file, { noCache });
     if (text) process.stdout.write(text + "\n");
-  } catch (err: any) {
-    console.error(`Error: ${err.message}`);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    console.error(`Error: ${message}`);
     process.exit(1);
   }
 }

@@ -2,6 +2,7 @@ import * as ort from "onnxruntime-node";
 import { join } from "path";
 import { ensureOrtBackend } from "./ort-backend-fix";
 
+// TDT allows multiple tokens per encoder frame; cap to prevent runaway decoding
 const MAX_TOKENS_PER_STEP = 10;
 
 export interface DecoderSession {
@@ -130,6 +131,3 @@ export function createOnnxDecoderSession(
   };
 }
 
-export function releaseDecoder(): void {
-  onnxSession = null;
-}
