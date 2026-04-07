@@ -69,10 +69,10 @@ jobs:
         run: cat benchmark-results.md
 
       - name: 🔍 Check regression
-        run: python3 .github/scripts/check-regression.py benchmark-summary.json BENCHMARK.md
+        run: bun .github/scripts/check-regression.ts benchmark-summary.json BENCHMARK.md
 
       - name: 📝 Update BENCHMARK.md
-        run: python3 .github/scripts/update-benchmark-md.py benchmark-results.md BENCHMARK.md
+        run: bun .github/scripts/update-benchmark-md.ts benchmark-results.md BENCHMARK.md
 
       - name: 📝 Commit results
-        run: bash .github/scripts/commit-and-push.sh BENCHMARK.md
+        run: bun .github/scripts/commit-and-push.ts BENCHMARK.md
