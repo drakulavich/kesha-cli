@@ -64,6 +64,13 @@ jobs:
           HF_HUB_DISABLE_TELEMETRY: "1"
         run: |
           CI_RESULTS=$(bash scripts/benchmark.sh)
+
+          echo "============================================"
+          echo "  BENCHMARK RESULTS"
+          echo "============================================"
+          echo "$CI_RESULTS"
+          echo "============================================"
+
           python3 -c "
           import re, sys
           content = open('BENCHMARK.md').read()
