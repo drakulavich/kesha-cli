@@ -31,6 +31,7 @@ bun run src/cli.ts --version                   # Show version
 - **NEVER** use `.subarray()` for ONNX tensors — use `.slice()` (Bun limitation)
 - **NEVER** push directly to `main` — it is a protected branch
 - All changes must go through pull requests: create a feature branch, push, open a PR
+- Create a **new PR for each distinct user request** — do not pile unrelated changes into one PR
 - **NEVER** run `git push` unless explicitly requested by user
 - Add unit tests when writing new code
 - ffmpeg must be in PATH for ONNX backend audio conversion

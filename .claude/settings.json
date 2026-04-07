@@ -1,0 +1,37 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git branch*)",
+      "Bash(git show*)",
+      "Bash(git add *)",
+      "Bash(git checkout -b *)",
+      "Bash(git commit *)",
+      "Bash(git stash*)",
+      "Bash(git fetch*)",
+      "Bash(git rebase*)",
+      "Bash(gh pr *)",
+      "Bash(gh run *)",
+      "Bash(gh api *)",
+      "Bash(bun test*)",
+      "Bash(bun run test*)",
+      "Bash(bun install)",
+      "Bash(bun link)",
+      "Bash(bunx tsc*)",
+      "Bash(cat *)",
+      "Bash(ls *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(grep *)",
+      "Bash(make test)",
+      "Bash(make lint)",
+      "Bash(make unit)",
+      "Bash(make integration)",
+      "Bash(make smoke-test)",
+      "Bash(make release)"
+    ]
+  }
+}
