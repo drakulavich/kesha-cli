@@ -35,6 +35,7 @@ bun run src/cli.ts --version                   # Show version
 - Add unit tests when writing new code
 - ffmpeg must be in PATH for ONNX backend audio conversion
 - **NEVER** write more than 3 lines of bash in GitHub Actions workflow steps — extract to `.github/scripts/`
+- **BEFORE npm publish**: ask the user to run `make smoke-test`. Do NOT publish without explicit user confirmation that tests pass.
 
 ## Git Worktrees for Big Changes
 
