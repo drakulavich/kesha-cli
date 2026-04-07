@@ -19,7 +19,7 @@ jobs:
         working-directory: swift/
     steps:
       - name: 📥 Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 💾 Cache Swift packages
         uses: actions/cache@v4
