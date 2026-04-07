@@ -27,6 +27,13 @@ Two interfaces: a CLI (`parakeet <audio>`) and a programmatic API (`@drakulavich
 - ffmpeg must be in PATH for audio format conversion
 - All audio is converted to 16kHz mono Float32 PCM internally
 
+### RELEASE PROCESS
+
+- Before `npm publish`, always ask the user to run e2e tests locally first
+- Suggest: `make smoke-test`
+- Do NOT publish to npm without explicit user confirmation that tests pass
+- Create a GitHub release first, wait for CI to pass, then publish to npm
+
 ### BRANCH PROTECTION
 
 - `main` branch is protected — never push directly to main
