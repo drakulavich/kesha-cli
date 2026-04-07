@@ -5,14 +5,15 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 [![Bun](https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun)](https://bun.sh)
 
-Fast multilingual speech-to-text CLI powered by NVIDIA Parakeet ONNX models. Zero Python. Runs on CPU.
+Fast multilingual speech-to-text CLI powered by NVIDIA Parakeet models. Zero Python. CoreML on Apple Silicon, ONNX on CPU.
 
 ## Features
 
 - **25 languages** — automatic language detection, no prompting needed
-- **3x faster than Whisper** on CPU (see [benchmark](#benchmark))
-- **Zero Python** — pure TypeScript/Bun with onnxruntime-node
-- **Explicit model install** — `parakeet install` downloads ~3GB to `~/.cache/parakeet/`
+- **~155x real-time on Apple Silicon** — CoreML backend via [FluidAudio](https://github.com/FluidInference/FluidAudio) (1 min audio in ~0.4s)
+- **3x faster than Whisper** on CPU with ONNX fallback (see [benchmark](#benchmark))
+- **Zero Python** — pure TypeScript/Bun, native Swift binary for CoreML
+- **Smart install** — `parakeet install` auto-detects platform: CoreML on macOS arm64, ONNX elsewhere
 - **Any audio format** — ffmpeg handles OGG, MP3, WAV, FLAC, M4A, etc.
 
 ## Install
@@ -43,13 +44,19 @@ bun link
 ## Usage
 
 ```bash
-# Download models (required before first use)
+# Download backend (required before first use)
+# On macOS Apple Silicon: downloads CoreML binary
+# On Linux/other: downloads ONNX models (~3GB)
 parakeet install
+
+# Force a specific backend
+parakeet install --coreml    # CoreML (macOS arm64 only)
+parakeet install --onnx      # ONNX (any platform)
 
 # Transcribe any audio file (language auto-detected)
 parakeet audio.ogg
 
-# Force re-download models
+# Force re-download
 parakeet install --no-cache
 
 # Show version
@@ -87,6 +94,22 @@ Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, G
 
 ## How It Works
 
+### CoreML backend (macOS Apple Silicon)
+
+```
+parakeet audio.ogg
+  |
+  +-- parakeet-coreml (Swift binary via FluidAudio)
+  |   +-- CoreML inference on Apple Neural Engine
+  |   +-- ~155x real-time on M4 Pro
+  |
+  stdout: transcript
+```
+
+Uses [FluidAudio](https://github.com/FluidInference/FluidAudio) with the [CoreML model](https://huggingface.co/FluidInference/parakeet-tdt-0.6b-v3-coreml). CoreML model files are downloaded by FluidAudio on first transcription.
+
+### ONNX backend (cross-platform fallback)
+
 ```
 parakeet audio.ogg
   |
@@ -100,7 +123,7 @@ parakeet audio.ogg
   stdout: transcript
 ```
 
-Uses [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) exported to ONNX by [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx). Run `parakeet install` to download models from HuggingFace (~3GB).
+Uses [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3) exported to ONNX by [istupakov](https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx). Run `parakeet install --onnx` to download models from HuggingFace (~3GB).
 
 ## Requirements
 
@@ -111,12 +134,13 @@ Uses [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.
 
 ### macOS (Apple Silicon)
 
-Works natively on M1/M2/M3/M4. Install dependencies with Homebrew:
+Works natively on M1/M2/M3/M4 with CoreML acceleration. Install dependencies with Homebrew:
 
 ```bash
 brew install ffmpeg
 curl -fsSL https://bun.sh/install | bash
 bun install -g @drakulavich/parakeet-cli    # or: npm install -g @drakulavich/parakeet-cli
+parakeet install                             # downloads CoreML binary
 ```
 
 ### Linux
@@ -125,6 +149,7 @@ bun install -g @drakulavich/parakeet-cli    # or: npm install -g @drakulavich/pa
 apt install ffmpeg   # or yum, pacman, etc.
 curl -fsSL https://bun.sh/install | bash
 bun install -g @drakulavich/parakeet-cli    # or: npm install -g @drakulavich/parakeet-cli
+parakeet install                             # downloads ONNX models (~3GB)
 ```
 
 ## OpenClaw Integration

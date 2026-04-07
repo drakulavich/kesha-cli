@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Parakeet CLI is a fast multilingual speech-to-text tool powered by NVIDIA Parakeet TDT 0.6B ONNX models. It runs entirely locally with no cloud dependencies. Built on Bun runtime with onnxruntime-node for inference.
+Parakeet CLI is a fast multilingual speech-to-text tool powered by NVIDIA Parakeet TDT 0.6B models. It runs entirely locally with no cloud dependencies. Two backends: CoreML on macOS Apple Silicon (~155x real-time via FluidAudio), ONNX on all platforms (via onnxruntime-node). Built on Bun runtime.
 
 Two interfaces: a CLI (`parakeet <audio>`) and a programmatic API (`@drakulavich/parakeet-cli/core`).
 
@@ -55,9 +55,10 @@ parakeet-cli/
 │   └── parakeet.js               # Shebang entry point
 ├── src/
 │   ├── cli.ts                    # CLI argument parsing, install/transcribe commands
-│   ├── lib.ts                    # Public API (transcribe, downloadModel)
-│   ├── transcribe.ts             # Orchestrates the full inference pipeline
-│   ├── models.ts                 # Model download, cache check, requireModel
+│   ├── lib.ts                    # Public API (transcribe, downloadModel, downloadCoreML)
+│   ├── transcribe.ts             # Backend selection: CoreML first, ONNX fallback
+│   ├── coreml.ts                 # CoreML backend: detection, subprocess invocation
+│   ├── models.ts                 # Model/binary download, cache check, requireModel
 │   ├── audio.ts                  # ffmpeg-based audio conversion to Float32 PCM
 │   ├── preprocess.ts             # Mel-spectrogram extraction (nemo128.onnx)
 │   ├── encoder.ts                # FastConformer encoder (encoder-model.onnx)
@@ -74,7 +75,20 @@ parakeet-cli/
 
 ## Architecture Overview
 
-### Inference Pipeline
+### Backend Selection
+
+```
+transcribe(audioPath)
+  ├── CoreML installed? → spawn parakeet-coreml subprocess → stdout
+  ├── ONNX cached?     → existing ONNX pipeline
+  └── Neither?         → error: run "parakeet install"
+```
+
+### CoreML Backend (macOS Apple Silicon)
+
+A pre-built Swift binary (`~/.cache/parakeet/coreml/bin/parakeet-coreml`) wraps [FluidAudio](https://github.com/FluidInference/FluidAudio) for CoreML inference on Apple Neural Engine. Invoked as a subprocess. CoreML model files are managed by FluidAudio internally.
+
+### ONNX Backend (cross-platform)
 
 ```
 Audio file (any format)
@@ -105,10 +119,11 @@ Audio file (any format)
 ### Public API (`./core` export)
 
 ```typescript
-import { transcribe, downloadModel } from "@drakulavich/parakeet-cli/core";
+import { transcribe, downloadModel, downloadCoreML } from "@drakulavich/parakeet-cli/core";
 
 const text = await transcribe("audio.wav", { modelDir?, beamWidth? });
-await downloadModel(noCache?, modelDir?);
+await downloadModel(noCache?, modelDir?);  // ONNX models
+await downloadCoreML(noCache?);            // CoreML binary
 ```
 
 ## Code Style
@@ -121,13 +136,19 @@ await downloadModel(noCache?, modelDir?);
 
 ## CI/CD
 
-GitHub Actions (`.github/workflows/ci.yml`):
-- Runs on push/PR to main
-- Type check (`bunx tsc --noEmit`)
-- Unit tests (`bun run test:unit`)
+GitHub Actions:
+- `.github/workflows/ci.yml` — runs on push/PR to main, matrix: ubuntu, windows, macos. Type check + unit tests.
+- `.github/workflows/build-coreml.yml` — builds Swift binary on release publish, attaches to GitHub release as `parakeet-coreml-darwin-arm64`.
+
+## Swift Binary (`swift/`)
+
+A minimal Swift package wrapping FluidAudio. Built by CI, not by end users.
+- `swift/Package.swift` — depends on FluidAudio >= 0.13.6
+- `swift/Sources/ParakeetCoreML/main.swift` — reads audio, transcribes, prints to stdout
 
 ## Platform Requirements
 
 - **Runtime**: Bun >= 1.3.0
-- **System**: ffmpeg in PATH
-- **Supported**: macOS, Linux (anywhere Bun + onnxruntime-node runs)
+- **System**: ffmpeg in PATH (ONNX backend only; CoreML handles conversion internally)
+- **CoreML backend**: macOS 14+, Apple Silicon (arm64)
+- **ONNX backend**: macOS, Linux, Windows (anywhere Bun + onnxruntime-node runs)
