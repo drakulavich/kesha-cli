@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { getModelDir, MODEL_FILES, HF_REPO } from "../models";
+import { getModelDir, MODEL_FILES, HF_REPO, getCoreMLDownloadURL } from "../models";
 import { join } from "path";
 import { homedir } from "os";
 
@@ -19,5 +19,12 @@ describe("models", () => {
 
   test("HF_REPO points to v3 ONNX repo", () => {
     expect(HF_REPO).toBe("istupakov/parakeet-tdt-0.6b-v3-onnx");
+  });
+
+  test("getCoreMLDownloadURL includes version and correct filename", () => {
+    const url = getCoreMLDownloadURL("0.5.0");
+    expect(url).toBe(
+      "https://github.com/drakulavich/parakeet-cli/releases/download/v0.5.0/parakeet-coreml-darwin-arm64"
+    );
   });
 });

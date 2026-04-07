@@ -1,6 +1,6 @@
 import { join } from "path";
 import { homedir } from "os";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, chmodSync } from "fs";
 
 export const HF_REPO = "istupakov/parakeet-tdt-0.6b-v3-onnx";
 
@@ -32,7 +32,7 @@ export function requireModel(modelDir?: string): string {
       "║ Looks like Parakeet model is not downloaded yet.         ║",
       "║ Please run the following command to download the model:  ║",
       "║                                                          ║",
-      "║     npx @drakulavich/parakeet-cli install                ║",
+      "║     bunx @drakulavich/parakeet-cli install               ║",
       "╚══════════════════════════════════════════════════════════╝",
     ];
     throw new Error(lines.join("\n"));
@@ -70,4 +70,39 @@ export async function downloadModel(noCache = false, modelDir?: string): Promise
 
   console.error("Model downloaded successfully.");
   return dir;
+}
+
+export function getCoreMLDownloadURL(version: string): string {
+  return `https://github.com/drakulavich/parakeet-cli/releases/download/v${version}/parakeet-coreml-darwin-arm64`;
+}
+
+export async function downloadCoreML(noCache = false): Promise<string> {
+  const { getCoreMLBinPath } = await import("./coreml");
+  const binPath = getCoreMLBinPath();
+
+  if (!noCache && existsSync(binPath)) {
+    console.error("CoreML backend already installed.");
+    return binPath;
+  }
+
+  const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
+  const url = getCoreMLDownloadURL(pkg.version);
+
+  console.error("Downloading parakeet-coreml binary...");
+
+  const res = await fetch(url, { redirect: "follow" });
+
+  if (!res.ok) {
+    throw new Error(`Failed to download CoreML binary: ${url} (${res.status})`);
+  }
+
+  const dir = join(binPath, "..");
+  mkdirSync(dir, { recursive: true });
+
+  await Bun.write(binPath, res);
+
+  chmodSync(binPath, 0o755);
+
+  console.error("CoreML backend installed successfully.");
+  return binPath;
 }
