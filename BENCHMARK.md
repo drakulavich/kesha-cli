@@ -1,9 +1,9 @@
 # Benchmark Results
 
 10 Telegram voice messages (Russian, 3-10s each).
-Models: faster-whisper medium (int8, CPU) vs Parakeet TDT 0.6B v3 (CoreML, Apple Neural Engine).
+Models: faster-whisper medium (int8, CPU) vs Parakeet TDT 0.6B v3.
 
-## GitHub CI (macos-15)
+## GitHub CI (ubuntu-latest)
 
 <!-- CI-BENCHMARK-START -->
 

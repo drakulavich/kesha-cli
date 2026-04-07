@@ -16,9 +16,12 @@ concurrency:
 
 jobs:
   benchmark:
-    runs-on: macos-15
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
     steps:
       - name: 📥 Checkout
         uses: actions/checkout@v6
@@ -58,6 +61,7 @@ jobs:
           restore-keys: ${{ runner.os }}-hf-
 
       - name: 💾 Cache CoreML model
+        if: runner.os == 'macOS'
         uses: actions/cache@v5
         with:
           path: |
@@ -66,15 +70,51 @@ jobs:
           key: ${{ runner.os }}-parakeet-coreml-v3
           restore-keys: ${{ runner.os }}-parakeet-coreml-
 
+      - name: 🎬 Install ffmpeg
+        if: runner.os == 'Linux'
+        run: sudo apt-get install -y ffmpeg
+
       - name: 📦 Install dependencies
         run: bun install
 
       - name: 🏎️ Run benchmark
         env:
           HF_HUB_DISABLE_TELEMETRY: "1"
-        run: bash .github/scripts/update-benchmark.sh
+          BENCHMARK_SUMMARY: benchmark-summary.json
+        run: bash scripts/benchmark.sh > benchmark-results.md
+
+      - name: 📊 Print results
+        run: cat benchmark-results.md
+
+      - name: 📤 Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-${{ matrix.os }}
+          path: |
+            benchmark-results.md
+            benchmark-summary.json
+          retention-days: 7
+
+  publish:
+    needs: benchmark
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: 📥 Download Ubuntu results
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-ubuntu-latest
+          path: results
+
+      - name: 🔍 Check regression
+        run: python3 .github/scripts/check-regression.py results/benchmark-summary.json BENCHMARK.md
+
+      - name: 📝 Update BENCHMARK.md
+        run: python3 .github/scripts/update-benchmark-md.py results/benchmark-results.md BENCHMARK.md
 
       - name: 📝 Commit results
-        run: |
-          bash .github/scripts/commit-and-push.sh BENCHMARK.md "benchmark: update CI results"
-
+        run: bash .github/scripts/commit-and-push.sh BENCHMARK.md "benchmark: update CI results"
