@@ -41,9 +41,27 @@ jobs:
           key: ${{ runner.os }}-pip-faster-whisper
           restore-keys: ${{ runner.os }}-pip-
 
+      - name: Cache HuggingFace models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-hf-whisper-medium-int8
+          restore-keys: ${{ runner.os }}-hf-
+
+      - name: Cache parakeet CoreML model
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/parakeet/coreml
+            ~/Library/Caches/FluidAudio
+          key: ${{ runner.os }}-parakeet-coreml-v3
+          restore-keys: ${{ runner.os }}-parakeet-coreml-
+
       - run: bun install
 
       - name: Run benchmark
+        env:
+          HF_HUB_DISABLE_TELEMETRY: "1"
         run: |
           CI_RESULTS=$(bash scripts/benchmark.sh)
           python3 -c "
