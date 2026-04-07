@@ -1,4 +1,4 @@
-import { requireModel, isModelCached } from "./models";
+import { requireModel, isModelCached, installHintError } from "./models";
 import { isCoreMLInstalled, transcribeCoreML } from "./coreml";
 import { convertToFloat32PCM } from "./audio";
 import { initPreprocessor, preprocess } from "./preprocess";
@@ -34,28 +34,15 @@ export interface TranscribeOptions {
 const MIN_AUDIO_SAMPLES = 1600;
 
 export async function transcribe(audioPath: string, opts: TranscribeOptions = {}): Promise<string> {
-  // CoreML backend: preferred on macOS arm64 when installed
   if (isCoreMLInstalled()) {
     return transcribeCoreML(audioPath);
   }
 
-  // ONNX backend: fallback
   if (isModelCached(opts.modelDir)) {
     return transcribeOnnx(audioPath, opts);
   }
 
-  // Neither backend available
-  const lines = [
-    "Error: No backend available",
-    "",
-    "╔══════════════════════════════════════════════════════════╗",
-    "║ No transcription backend is installed.                   ║",
-    "║ Please run the following command to get started:         ║",
-    "║                                                          ║",
-    "║     bunx @drakulavich/parakeet-cli install               ║",
-    "╚══════════════════════════════════════════════════════════╝",
-  ];
-  throw new Error(lines.join("\n"));
+  throw installHintError("Error: No transcription backend is installed");
 }
 
 async function transcribeOnnx(audioPath: string, opts: TranscribeOptions): Promise<string> {
@@ -67,11 +54,13 @@ async function transcribeOnnx(audioPath: string, opts: TranscribeOptions): Promi
 
   const beamWidth = opts.beamWidth ?? 4;
   const modelDir = requireModel(opts.modelDir);
-  const tokenizer = await Tokenizer.fromFile(join(modelDir, "vocab.txt"));
 
-  await initPreprocessor(modelDir);
-  await initEncoder(modelDir);
-  await initDecoder(modelDir);
+  const [tokenizer] = await Promise.all([
+    Tokenizer.fromFile(join(modelDir, "vocab.txt")),
+    initPreprocessor(modelDir),
+    initEncoder(modelDir),
+    initDecoder(modelDir),
+  ]);
 
   const { features, length } = await preprocess(audio);
   const { encoderOutput, encodedLength } = await encode(features, length);

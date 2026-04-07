@@ -1,4 +1,4 @@
-import { join } from "path";
+import { join, dirname } from "path";
 import { homedir } from "os";
 import { existsSync, mkdirSync, chmodSync } from "fs";
 
@@ -21,21 +21,24 @@ export function isModelCached(dir?: string): boolean {
   return MODEL_FILES.every((f) => existsSync(join(d, f)));
 }
 
+export function installHintError(headline: string): Error {
+  const lines = [
+    headline,
+    "",
+    "╔══════════════════════════════════════════════════════════╗",
+    "║ Please run the following command to get started:         ║",
+    "║                                                          ║",
+    "║     bunx @drakulavich/parakeet-cli install               ║",
+    "╚══════════════════════════════════════════════════════════╝",
+  ];
+  return new Error(lines.join("\n"));
+}
+
 export function requireModel(modelDir?: string): string {
   const dir = modelDir ?? getModelDir();
 
   if (!isModelCached(dir)) {
-    const lines = [
-      `Error: Model not found at ${dir}`,
-      "",
-      "╔══════════════════════════════════════════════════════════╗",
-      "║ Looks like Parakeet model is not downloaded yet.         ║",
-      "║ Please run the following command to download the model:  ║",
-      "║                                                          ║",
-      "║     bunx @drakulavich/parakeet-cli install               ║",
-      "╚══════════════════════════════════════════════════════════╝",
-    ];
-    throw new Error(lines.join("\n"));
+    throw installHintError(`Error: Model not found at ${dir}`);
   }
 
   return dir;
@@ -96,8 +99,7 @@ export async function downloadCoreML(noCache = false): Promise<string> {
     throw new Error(`Failed to download CoreML binary: ${url} (${res.status})`);
   }
 
-  const dir = join(binPath, "..");
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dirname(binPath), { recursive: true });
 
   await Bun.write(binPath, res);
 
