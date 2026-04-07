@@ -33,3 +33,42 @@ jobs:
 
       - name: Unit tests
         run: bun run test:unit
+
+  integration:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Cache parakeet CoreML backend
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/parakeet/coreml
+            ~/Library/Caches/FluidAudio
+          key: ${{ runner.os }}-parakeet-coreml-v3
+          restore-keys: ${{ runner.os }}-parakeet-coreml-
+
+      - run: bun install
+
+      - name: Install parakeet backend
+        run: bun run src/cli.ts install
+
+      - name: Install ffmpeg
+        run: brew install ffmpeg
+
+      - name: Integration tests
+        run: bun run test:integration
+        timeout-minutes: 10

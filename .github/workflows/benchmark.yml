@@ -78,5 +78,10 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add BENCHMARK.md
-          git diff --cached --quiet || git commit -m "benchmark: update CI results for $(bun run src/cli.ts --version)"
-          git push
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "benchmark: update CI results for $(bun run src/cli.ts --version)"
+            git pull --rebase origin main
+            git push
+          fi
