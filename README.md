@@ -122,7 +122,6 @@ Uses [NVIDIA Parakeet TDT 0.6B v3](https://huggingface.co/nvidia/parakeet-tdt-0.
 - [Bun](https://bun.sh) >= 1.3 (runtime)
 - [ffmpeg](https://ffmpeg.org) installed and in PATH
 - ~3GB disk space for model cache
-- npm or Bun can be used as the package manager
 
 ### macOS (Apple Silicon)
 
@@ -131,7 +130,7 @@ Works natively on M1/M2/M3/M4 with CoreML acceleration. Install dependencies wit
 ```bash
 brew install ffmpeg
 curl -fsSL https://bun.sh/install | bash
-bun install -g @drakulavich/parakeet-cli    # or: npm install -g @drakulavich/parakeet-cli
+bun install -g @drakulavich/parakeet-cli
 parakeet install                             # downloads CoreML binary
 ```
 
@@ -140,7 +139,7 @@ parakeet install                             # downloads CoreML binary
 ```bash
 apt install ffmpeg   # or yum, pacman, etc.
 curl -fsSL https://bun.sh/install | bash
-bun install -g @drakulavich/parakeet-cli    # or: npm install -g @drakulavich/parakeet-cli
+bun install -g @drakulavich/parakeet-cli
 parakeet install                             # downloads ONNX models (~3GB)
 ```
 
