@@ -1,6 +1,7 @@
 #!/bin/bash
 # Benchmark: faster-whisper vs parakeet-cli (CoreML)
-# Outputs markdown table to stdout, suitable for writing to BENCHMARK.md
+# Outputs CI section content to stdout.
+# The workflow inserts this between CI-BENCHMARK-START/END markers in BENCHMARK.md.
 
 set -euo pipefail
 
@@ -22,15 +23,13 @@ python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 pip install -q faster-whisper 2>/dev/null
 
-# Collect results
-declare -a FILES WHISPER_TIMES WHISPER_TEXTS PARAKEET_TIMES PARAKEET_TEXTS
-
+# Collect files
+declare -a FILES
 i=0
 for f in "$FIXTURES_DIR"/*.ogg; do
   FILES[$i]="$f"
   ((i++)) || true
 done
-
 TOTAL_FILES=${#FILES[@]}
 
 # Run faster-whisper benchmark
@@ -67,25 +66,19 @@ print(json.dumps(results, ensure_ascii=False))
 deactivate
 rm -rf "$VENV_DIR"
 
-# Generate markdown
+# Generate CI section markdown
 DATE=$(date -u +%Y-%m-%d)
 
 cat << HEADER
-# Benchmark Results
 
 **Date:** $DATE
 **Version:** v$VERSION
-**Hardware:** $CHIP, $RAM RAM
-**Test data:** 10 Telegram voice messages (Russian, 3-10s each)
-**Models:** faster-whisper medium (int8, CPU) vs Parakeet TDT 0.6B v3 (CoreML, Apple Neural Engine)
-
-## Results
+**Runner:** GitHub Actions macos-15 ($CHIP, $RAM RAM)
 
 | # | faster-whisper | Parakeet (CoreML) | faster-whisper Transcript | Parakeet Transcript |
 |---|---------|----------|--------------------|---------------------|
 HEADER
 
-# Parse JSON and output table rows
 python3 -c "
 import json, sys
 
@@ -104,6 +97,4 @@ speedup = round(whisper_total / parakeet_total) if parakeet_total > 0 else 0
 print(f'| **Total** | **{round(whisper_total, 1)}s** | **{round(parakeet_total, 1)}s** | | |')
 print()
 print(f'**Parakeet is ~{speedup}x faster** with CoreML on Apple Silicon.')
-print()
-print('faster-whisper handles mixed-language words better (\`.env\`, \`Workspace\`, \`Telegram\`). Parakeet transliterates them phonetically. Both produce transcripts usable by LLMs.')
 " "$WHISPER_JSON" "$PARAKEET_JSON"

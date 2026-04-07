@@ -41,16 +41,23 @@ jobs:
 
       - run: bun install
 
-      - name: Install parakeet backend
-        run: bun run src/cli.ts install
-
       - name: Run benchmark
-        run: bash scripts/benchmark.sh > BENCHMARK.md
+        run: |
+          CI_RESULTS=$(bash scripts/benchmark.sh)
+          # Replace content between CI-BENCHMARK markers
+          python3 -c "
+          import re, sys
+          content = open('BENCHMARK.md').read()
+          replacement = sys.argv[1]
+          pattern = r'(<!-- CI-BENCHMARK-START -->).*?(<!-- CI-BENCHMARK-END -->)'
+          updated = re.sub(pattern, r'\1\n' + replacement + r'\n\2', content, flags=re.DOTALL)
+          open('BENCHMARK.md', 'w').write(updated)
+          " "$CI_RESULTS"
 
       - name: Commit results
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add BENCHMARK.md
-          git diff --cached --quiet || git commit -m "benchmark: update results for ${{ github.event.release.tag_name || 'manual run' }}"
+          git diff --cached --quiet || git commit -m "benchmark: update CI results for ${{ github.event.release.tag_name || 'manual run' }}"
           git push

@@ -1,12 +1,18 @@
 # Benchmark Results
 
+10 Telegram voice messages (Russian, 3-10s each).
+Models: faster-whisper medium (int8, CPU) vs Parakeet TDT 0.6B v3 (CoreML, Apple Neural Engine).
+
+## GitHub CI (macos-15)
+
+<!-- CI-BENCHMARK-START -->
+_No CI benchmark results yet. Will be updated on next release._
+<!-- CI-BENCHMARK-END -->
+
+## MacBook Pro M3 Pro, 36 GB RAM
+
 **Date:** 2026-04-07
 **Version:** v0.5.1
-**Hardware:** Apple M3 Pro, 36 GB RAM
-**Test data:** 10 Telegram voice messages (Russian, 3-10s each)
-**Models:** faster-whisper medium (int8, CPU) vs Parakeet TDT 0.6B v3 (CoreML, Apple Neural Engine)
-
-## Results
 
 | # | faster-whisper | Parakeet (CoreML) | faster-whisper Transcript | Parakeet Transcript |
 |---|---------|----------|--------------------|---------------------|
