@@ -33,34 +33,20 @@ jobs:
           github-token: ${{ github.token }}
           merge-multiple: true
 
-      - name: 📜 Load report history
-        uses: actions/checkout@v6
+      - name: 📋 List downloaded results
+        run: find allure-results -type f
+
+      - name: 📊 Generate Allure report
+        run: bunx allure generate allure-results --output allure-report --report-name "Parakeet CLI Tests"
+
+      - name: 📜 Load previous reports from gh-pages
         continue-on-error: true
-        with:
-          ref: gh-pages
-          path: gh-pages
-
-      - name: 📊 Build Allure report
-        id: allure
-        uses: GuitaristForEver/allure-v3-report-action@v1
-        with:
-          allure_results: allure-results
-          allure_report: allure-report
-          allure_history: allure-history
-          gh_pages: gh-pages
-          subfolder: reports/allure
-          keep_reports: 10
-          report_name: "Parakeet CLI Tests"
-
-      - name: 🧹 Clean nested .git
-        if: steps.allure.outcome == 'success'
-        run: sudo rm -rf allure-history/.git
+        run: bash .github/scripts/load-allure-history.sh
 
       - name: 🚀 Publish report
         uses: peaceiris/actions-gh-pages@v4
-        if: steps.allure.outcome == 'success'
         with:
           github_token: ${{ github.token }}
           publish_branch: gh-pages
-          publish_dir: allure-history
+          publish_dir: deploy
           keep_files: true
