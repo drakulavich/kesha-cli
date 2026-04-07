@@ -5,7 +5,6 @@ on:
     workflows: ["Build CoreML Swift Binary"]
     branches: [main]
     types: [completed]
-  workflow_dispatch:
 
 permissions:
   contents: write
@@ -18,7 +17,7 @@ jobs:
   benchmark:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     strategy:
       matrix:
         os: [ubuntu-latest, macos-15, windows-latest]
