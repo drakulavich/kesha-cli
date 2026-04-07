@@ -144,6 +144,8 @@ parakeet install                             # downloads ONNX models (~3GB)
 
 ## OpenClaw Integration
 
+Drop-in replacement for OpenClaw's built-in voice processing. Parakeet runs locally with no API keys, is ~18x faster than Whisper on Apple Silicon, and outputs clean transcripts ready for LLM consumption.
+
 To use parakeet as the voice transcription engine in [OpenClaw](https://docs.openclaw.ai), update `~/.openclaw/openclaw.json`:
 
 ```json
