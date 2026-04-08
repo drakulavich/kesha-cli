@@ -153,7 +153,6 @@ export async function downloadCoreML(noCache = false): Promise<string> {
   chmodSync(binPath, 0o755);
 
   // Download CoreML model files (first transcription would be slow without this)
-  console.error("Downloading CoreML models...");
   const downloadProc = Bun.spawnSync([binPath, "--download-only"], {
     stdout: "inherit",
     stderr: "inherit",
