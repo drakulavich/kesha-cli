@@ -9,6 +9,22 @@ const GITHUB_REPO = "drakulavich/parakeet-cli";
 export type CoreMLInstallState = "missing" | "binary-only" | "ready" | "stale-binary";
 export type CoreMLBinaryInstallState = "ready" | "models-missing";
 
+export interface CoreMLBinaryCommandResult {
+  exitCode: number;
+  stdout: string;
+  stderr: string;
+}
+
+export interface CoreMLBinaryRunner {
+  probeCapabilities(binPath: string): CoreMLBinaryCommandResult;
+  downloadModels(binPath: string): CoreMLBinaryCommandResult;
+}
+
+export interface CoreMLOutputWriter {
+  stdout(message: string): void;
+  stderr(message: string): void;
+}
+
 export interface CoreMLBinaryCapabilities {
   protocolVersion: number;
   installState: CoreMLBinaryInstallState;
@@ -17,6 +33,43 @@ export interface CoreMLBinaryCapabilities {
     downloadOnly: boolean;
   };
 }
+
+const defaultOutputWriter: CoreMLOutputWriter = {
+  stdout(message) {
+    process.stdout.write(message);
+  },
+  stderr(message) {
+    process.stderr.write(message);
+  },
+};
+
+export function createCoreMLBinaryRunner(
+  spawnSync: typeof Bun.spawnSync = Bun.spawnSync,
+): CoreMLBinaryRunner {
+  function runCommand(binPath: string, flag: string): CoreMLBinaryCommandResult {
+    const proc = spawnSync([binPath, flag], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    return {
+      exitCode: proc.exitCode,
+      stdout: proc.stdout.toString(),
+      stderr: proc.stderr.toString(),
+    };
+  }
+
+  return {
+    probeCapabilities(binPath) {
+      return runCommand(binPath, "--capabilities-json");
+    },
+    downloadModels(binPath) {
+      return runCommand(binPath, "--download-only");
+    },
+  };
+}
+
+const defaultCoreMLBinaryRunner = createCoreMLBinaryRunner();
 
 export function getCoreMLSupportDir(): string {
   return join(homedir(), ".cache", "parakeet", "coreml");
@@ -128,42 +181,47 @@ async function fetchCoreMLBinary(): Promise<Response> {
   return res;
 }
 
-function getCoreMLInstallStatus(binPath: string): CoreMLInstallState {
-  const checkProc = Bun.spawnSync([binPath, "--capabilities-json"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-
-  return classifyCoreMLInstallProbe(checkProc.exitCode, checkProc.stdout.toString());
+export function getCoreMLInstallStatus(
+  binPath: string,
+  runner: CoreMLBinaryRunner = defaultCoreMLBinaryRunner,
+): CoreMLInstallState {
+  const probe = runner.probeCapabilities(binPath);
+  return classifyCoreMLInstallProbe(probe.exitCode, probe.stdout);
 }
 
-async function ensureCoreMLModels(binPath: string): Promise<void> {
-  const downloadProc = Bun.spawnSync([binPath, "--download-only"], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
+export async function ensureCoreMLModels(
+  binPath: string,
+  runner: CoreMLBinaryRunner = defaultCoreMLBinaryRunner,
+  output: CoreMLOutputWriter = defaultOutputWriter,
+): Promise<void> {
+  const download = runner.downloadModels(binPath);
 
-  const stdout = downloadProc.stdout.toString();
-  const stderr = downloadProc.stderr.toString();
-
-  if (stderr) {
-    process.stderr.write(stderr);
+  if (download.stderr) {
+    output.stderr(download.stderr);
   }
-  if (stdout) {
-    process.stdout.write(stdout);
+  if (download.stdout) {
+    output.stdout(download.stdout);
   }
 
-  if (downloadProc.exitCode !== 0) {
-    const detail = stderr.trim();
+  if (download.exitCode !== 0) {
+    const detail = download.stderr.trim();
     throw new Error(detail ? `Failed to download CoreML models: ${detail}` : "Failed to download CoreML models");
   }
 }
 
-export async function downloadCoreML(noCache = false): Promise<string> {
+export async function downloadCoreML(
+  noCache = false,
+  opts?: {
+    runner?: CoreMLBinaryRunner;
+    output?: CoreMLOutputWriter;
+  },
+): Promise<string> {
   const binPath = getCoreMLBinPath();
+  const runner = opts?.runner ?? defaultCoreMLBinaryRunner;
+  const output = opts?.output ?? defaultOutputWriter;
   const state = getCoreMLInstallState({
     binPath,
-    verifyReady: noCache ? undefined : getCoreMLInstallStatus,
+    verifyReady: noCache ? undefined : (path) => getCoreMLInstallStatus(path, runner),
   });
   const plan = planCoreMLInstall(state, noCache);
 
@@ -181,7 +239,7 @@ export async function downloadCoreML(noCache = false): Promise<string> {
   }
 
   if (plan.downloadModels) {
-    await ensureCoreMLModels(binPath);
+    await ensureCoreMLModels(binPath, runner, output);
   }
 
   console.log("CoreML backend installed successfully.");

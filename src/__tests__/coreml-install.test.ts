@@ -1,11 +1,16 @@
 import { describe, test, expect } from "bun:test";
 import {
   classifyCoreMLInstallProbe,
+  createCoreMLBinaryRunner,
+  ensureCoreMLModels,
   getCoreMLDownloadURL,
   getCoreMLInstallState,
+  getCoreMLInstallStatus,
   getCoreMLSupportDir,
   parseCoreMLBinaryCapabilities,
   planCoreMLInstall,
+  type CoreMLBinaryCommandResult,
+  type CoreMLBinaryRunner,
 } from "../coreml-install";
 import { join } from "path";
 import { homedir } from "os";
@@ -173,5 +178,104 @@ describe("coreml-install", () => {
     expect(
       classifyCoreMLInstallProbe(0, "{\"protocolVersion\":999}"),
     ).toBe("stale-binary");
+  });
+
+  test("createCoreMLBinaryRunner runs the expected commands", () => {
+    const calls: string[][] = [];
+    const runner = createCoreMLBinaryRunner((cmd) => {
+      calls.push(Array.isArray(cmd) ? cmd : cmd.cmd);
+      return {
+        exitCode: 0,
+        stdout: Buffer.from("{}"),
+        stderr: Buffer.from(""),
+      } as ReturnType<typeof Bun.spawnSync>;
+    });
+
+    runner.probeCapabilities("/tmp/parakeet-coreml");
+    runner.downloadModels("/tmp/parakeet-coreml");
+
+    expect(calls).toEqual([
+      ["/tmp/parakeet-coreml", "--capabilities-json"],
+      ["/tmp/parakeet-coreml", "--download-only"],
+    ]);
+  });
+
+  test("getCoreMLInstallStatus delegates to the runner probe", () => {
+    const runner: CoreMLBinaryRunner = {
+      probeCapabilities() {
+        return {
+          exitCode: 0,
+          stdout: JSON.stringify({
+            protocolVersion: 1,
+            installState: "models-missing",
+            supportedCommands: {
+              checkInstall: true,
+              downloadOnly: true,
+            },
+          }),
+          stderr: "",
+        };
+      },
+      downloadModels() {
+        throw new Error("not used");
+      },
+    };
+
+    expect(getCoreMLInstallStatus("/tmp/parakeet-coreml", runner)).toBe("binary-only");
+  });
+
+  test("ensureCoreMLModels streams command output through the writer", async () => {
+    const writes = {
+      stdout: [] as string[],
+      stderr: [] as string[],
+    };
+    const runner: CoreMLBinaryRunner = {
+      probeCapabilities() {
+        throw new Error("not used");
+      },
+      downloadModels() {
+        return {
+          exitCode: 0,
+          stdout: "downloaded\n",
+          stderr: "progress\n",
+        };
+      },
+    };
+
+    await ensureCoreMLModels("/tmp/parakeet-coreml", runner, {
+      stdout(message) {
+        writes.stdout.push(message);
+      },
+      stderr(message) {
+        writes.stderr.push(message);
+      },
+    });
+
+    expect(writes).toEqual({
+      stdout: ["downloaded\n"],
+      stderr: ["progress\n"],
+    });
+  });
+
+  test("ensureCoreMLModels throws a contextual error when download fails", async () => {
+    const runner: CoreMLBinaryRunner = {
+      probeCapabilities() {
+        throw new Error("not used");
+      },
+      downloadModels() {
+        return {
+          exitCode: 2,
+          stdout: "",
+          stderr: "download failed",
+        };
+      },
+    };
+
+    await expect(
+      ensureCoreMLModels("/tmp/parakeet-coreml", runner, {
+        stdout() {},
+        stderr() {},
+      }),
+    ).rejects.toThrow("Failed to download CoreML models: download failed");
   });
 });
