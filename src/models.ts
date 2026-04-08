@@ -1,6 +1,8 @@
 import { join, dirname } from "path";
 import { homedir } from "os";
-import { existsSync, mkdirSync, chmodSync } from "fs";
+import { existsSync, mkdirSync, chmodSync, createWriteStream } from "fs";
+import { pipeline } from "stream/promises";
+import { Readable } from "stream";
 import { isCoreMLInstalled } from "./coreml";
 
 export const HF_REPO = "istupakov/parakeet-tdt-0.6b-v3-onnx";
@@ -73,7 +75,7 @@ export async function downloadModel(noCache = false, modelDir?: string): Promise
       throw new Error(`failed to download model: ${url} (${res.status})`);
     }
 
-    await Bun.write(dest, res);
+    await pipeline(Readable.fromWeb(res.body as any), createWriteStream(dest));
   }
 
   console.error("Model downloaded successfully.");
