@@ -6,7 +6,7 @@ import { getCoreMLBinPath } from "./coreml";
 const COREML_BINARY_NAME = "parakeet-coreml-darwin-arm64";
 const GITHUB_REPO = "drakulavich/parakeet-cli";
 
-export type CoreMLInstallState = "missing" | "binary-only" | "ready";
+export type CoreMLInstallState = "missing" | "binary-only" | "ready" | "stale-binary";
 
 export function getCoreMLSupportDir(): string {
   return join(homedir(), ".cache", "parakeet", "coreml");
@@ -23,7 +23,7 @@ export function getCoreMLLatestDownloadURL(): string {
 export function getCoreMLInstallState(opts?: {
   binPath?: string;
   exists?: (path: string) => boolean;
-  verifyReady?: (binPath: string) => boolean;
+  verifyReady?: (binPath: string) => CoreMLInstallState;
 }): CoreMLInstallState {
   const binPath = opts?.binPath ?? getCoreMLBinPath();
   const fileExists = opts?.exists ?? existsSync;
@@ -37,7 +37,7 @@ export function getCoreMLInstallState(opts?: {
     return "binary-only";
   }
 
-  return verifyReady(binPath) ? "ready" : "binary-only";
+  return verifyReady(binPath);
 }
 
 export function planCoreMLInstall(
@@ -55,7 +55,25 @@ export function planCoreMLInstall(
       return { downloadBinary: false, downloadModels: true };
     case "ready":
       return { downloadBinary: false, downloadModels: false };
+    case "stale-binary":
+      return { downloadBinary: true, downloadModels: true };
   }
+}
+
+export function isLegacyCoreMLFlagError(detail: string, flag: string): boolean {
+  return detail.includes(`file not found: ${flag}`);
+}
+
+export function classifyCoreMLInstallCheck(exitCode: number, stderr: string): CoreMLInstallState {
+  if (exitCode === 0) {
+    return "ready";
+  }
+
+  if (isLegacyCoreMLFlagError(stderr, "--check-install")) {
+    return "stale-binary";
+  }
+
+  return "binary-only";
 }
 
 async function fetchCoreMLBinary(): Promise<Response> {
@@ -77,13 +95,13 @@ async function fetchCoreMLBinary(): Promise<Response> {
   return res;
 }
 
-function isCoreMLInstallReady(binPath: string): boolean {
+function getCoreMLInstallStatus(binPath: string): CoreMLInstallState {
   const checkProc = Bun.spawnSync([binPath, "--check-install"], {
     stdout: "pipe",
     stderr: "pipe",
   });
 
-  return checkProc.exitCode === 0;
+  return classifyCoreMLInstallCheck(checkProc.exitCode, checkProc.stderr.toString());
 }
 
 async function ensureCoreMLModels(binPath: string): Promise<void> {
@@ -112,7 +130,7 @@ export async function downloadCoreML(noCache = false): Promise<string> {
   const binPath = getCoreMLBinPath();
   const state = getCoreMLInstallState({
     binPath,
-    verifyReady: noCache ? undefined : isCoreMLInstallReady,
+    verifyReady: noCache ? undefined : getCoreMLInstallStatus,
   });
   const plan = planCoreMLInstall(state, noCache);
 

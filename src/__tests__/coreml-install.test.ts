@@ -1,8 +1,10 @@
 import { describe, test, expect } from "bun:test";
 import {
+  classifyCoreMLInstallCheck,
   getCoreMLDownloadURL,
   getCoreMLInstallState,
   getCoreMLSupportDir,
+  isLegacyCoreMLFlagError,
   planCoreMLInstall,
 } from "../coreml-install";
 import { join } from "path";
@@ -35,7 +37,7 @@ describe("coreml-install", () => {
     const state = getCoreMLInstallState({
       binPath: "/tmp/parakeet-coreml",
       exists: () => true,
-      verifyReady: () => false,
+      verifyReady: () => "binary-only",
     });
 
     expect(state).toBe("binary-only");
@@ -45,10 +47,20 @@ describe("coreml-install", () => {
     const state = getCoreMLInstallState({
       binPath: "/tmp/parakeet-coreml",
       exists: () => true,
-      verifyReady: () => true,
+      verifyReady: () => "ready",
     });
 
     expect(state).toBe("ready");
+  });
+
+  test("getCoreMLInstallState returns stale-binary when cached binary is too old", () => {
+    const state = getCoreMLInstallState({
+      binPath: "/tmp/parakeet-coreml",
+      exists: () => true,
+      verifyReady: () => "stale-binary",
+    });
+
+    expect(state).toBe("stale-binary");
   });
 
   test("getCoreMLInstallState defaults to binary-only when no readiness checker is provided", () => {
@@ -79,5 +91,33 @@ describe("coreml-install", () => {
       downloadBinary: true,
       downloadModels: true,
     });
+  });
+
+  test("planCoreMLInstall refreshes stale cached binaries", () => {
+    expect(planCoreMLInstall("stale-binary")).toEqual({
+      downloadBinary: true,
+      downloadModels: true,
+    });
+  });
+
+  test("isLegacyCoreMLFlagError detects unsupported command flags", () => {
+    expect(
+      isLegacyCoreMLFlagError("Error: file not found: --check-install", "--check-install"),
+    ).toBe(true);
+    expect(
+      isLegacyCoreMLFlagError("CoreML models are not installed.", "--check-install"),
+    ).toBe(false);
+  });
+
+  test("classifyCoreMLInstallCheck marks legacy binaries as stale", () => {
+    expect(
+      classifyCoreMLInstallCheck(1, "Error: file not found: --check-install"),
+    ).toBe("stale-binary");
+    expect(
+      classifyCoreMLInstallCheck(1, "CoreML models are not installed."),
+    ).toBe("binary-only");
+    expect(
+      classifyCoreMLInstallCheck(0, ""),
+    ).toBe("ready");
   });
 });
