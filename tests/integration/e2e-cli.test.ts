@@ -24,9 +24,9 @@ describe("e2e-cli", () => {
   });
 
   test("no args prints usage and exits 1", async () => {
-    const { stderr, exitCode } = await runCli([]);
+    const { stdout, exitCode } = await runCli([]);
     expect(exitCode).toBe(1);
-    expect(stderr).toContain("Usage:");
+    expect(stdout).toContain("Usage:");
   });
 
   test("missing file prints error and exits 1", async () => {

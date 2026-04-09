@@ -2,6 +2,7 @@ import { join, dirname } from "path";
 import { homedir } from "os";
 import { existsSync, mkdirSync, chmodSync } from "fs";
 import { getCoreMLBinPath } from "./coreml";
+import { log } from "./log";
 
 const COREML_BINARY_NAME = "parakeet-coreml-darwin-arm64";
 const GITHUB_REPO = "drakulavich/parakeet-cli";
@@ -226,12 +227,12 @@ export async function downloadCoreML(
   const plan = planCoreMLInstall(state, noCache);
 
   if (!plan.downloadBinary && !plan.downloadModels) {
-    console.log("CoreML backend already installed.");
+    log.success("CoreML backend already installed.");
     return binPath;
   }
 
   if (plan.downloadBinary) {
-    console.error("Downloading parakeet-coreml binary...");
+    log.progress("Downloading parakeet-coreml binary...");
     const res = await fetchCoreMLBinary();
     mkdirSync(dirname(binPath), { recursive: true });
     await Bun.write(binPath, res);
@@ -242,6 +243,6 @@ export async function downloadCoreML(
     await ensureCoreMLModels(binPath, runner, output);
   }
 
-  console.log("CoreML backend installed successfully.");
+  log.success("CoreML backend installed successfully.");
   return binPath;
 }
