@@ -46,3 +46,13 @@ describe("formatProgressBar", () => {
     expect(bar).not.toContain("NaN");
   });
 });
+
+import { createProgressBar } from "../progress";
+
+describe("createProgressBar", () => {
+  test("non-TTY mode calls log functions", () => {
+    const bar = createProgressBar("test.onnx", 0);
+    bar.update(100);
+    bar.finish();
+  });
+});
