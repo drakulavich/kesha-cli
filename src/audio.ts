@@ -61,6 +61,29 @@ async function convertAudioWithFfmpeg(
   return tmpPath;
 }
 
+export function getFfmpegInstallHint(): string {
+  const platform = process.platform;
+
+  if (platform === "darwin") {
+    if (Bun.which("brew")) return "  brew install ffmpeg";
+    if (Bun.which("port")) return "  sudo port install ffmpeg";
+  }
+
+  if (platform === "linux") {
+    if (Bun.which("apt")) return "  sudo apt install ffmpeg";
+    if (Bun.which("dnf")) return "  sudo dnf install ffmpeg-free";
+    if (Bun.which("pacman")) return "  sudo pacman -S ffmpeg";
+  }
+
+  if (platform === "win32") {
+    if (Bun.which("choco")) return "  choco install ffmpeg";
+    if (Bun.which("scoop")) return "  scoop install ffmpeg";
+    if (Bun.which("winget")) return "  winget install ffmpeg";
+  }
+
+  return "  https://ffmpeg.org/download.html";
+}
+
 function assertFfmpegExists(): void {
   if (ffmpegChecked) return;
   if (!Bun.which("ffmpeg")) {
