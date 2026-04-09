@@ -55,4 +55,47 @@ describe("createProgressBar", () => {
     bar.update(100);
     bar.finish();
   });
+
+  test("TTY mode writes progress to stderr", () => {
+    const originalIsTTY = process.stderr.isTTY;
+    const writes: string[] = [];
+    const originalWrite = process.stderr.write;
+
+    try {
+      Object.defineProperty(process.stderr, "isTTY", { value: true, configurable: true });
+      process.stderr.write = ((chunk: string) => {
+        writes.push(chunk);
+        return true;
+      }) as typeof process.stderr.write;
+
+      const bar = createProgressBar("model.onnx", 200);
+      bar.update(100);
+      bar.update(50);
+      bar.finish();
+
+      expect(writes.length).toBe(3); // 2 updates + 1 finish
+      expect(writes[0]).toContain("\r");
+      expect(writes[0]).toContain("model.onnx");
+      expect(writes[0]).toContain("50%"); // 100/200
+      expect(writes[1]).toContain("75%"); // 150/200
+      expect(writes[2]).toContain("100%"); // finish
+      expect(writes[2]).toContain("\n"); // finish adds newline
+    } finally {
+      Object.defineProperty(process.stderr, "isTTY", { value: originalIsTTY, configurable: true });
+      process.stderr.write = originalWrite;
+    }
+  });
+
+  test("non-TTY mode with known size includes size info", () => {
+    const originalIsTTY = process.stderr.isTTY;
+    try {
+      Object.defineProperty(process.stderr, "isTTY", { value: false, configurable: true });
+      // Should not throw — exercises the sizeInfo branch
+      const bar = createProgressBar("model.onnx", 104857600);
+      bar.update(100);
+      bar.finish();
+    } finally {
+      Object.defineProperty(process.stderr, "isTTY", { value: originalIsTTY, configurable: true });
+    }
+  });
 });

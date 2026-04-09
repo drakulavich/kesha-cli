@@ -42,43 +42,74 @@ export function collectSuggestions(info: StatusInfo): string[] {
   return suggestions;
 }
 
-export async function showStatus(): Promise<void> {
-  const isMac = isMacArm64();
-  const platform = `${process.platform} ${process.arch}`;
+export interface StatusDeps {
+  isMacArm64: () => boolean;
+  getCoreMLBinPath: () => string;
+  getCoreMLState: () => CoreMLInstallState;
+  getCoreMLSupportDir: () => string;
+  isModelCached: () => boolean;
+  getModelDir: () => string;
+  whichFfmpeg: () => string | null;
+  bunVersion: string;
+  platform: string;
+}
+
+function defaultDeps(): StatusDeps {
+  return {
+    isMacArm64,
+    getCoreMLBinPath,
+    getCoreMLState: () => getCoreMLInstallState({
+      binPath: getCoreMLBinPath(),
+      verifyReady: (path) => getCoreMLInstallStatus(path),
+    }),
+    getCoreMLSupportDir,
+    isModelCached,
+    getModelDir,
+    whichFfmpeg: () => Bun.which("ffmpeg"),
+    bunVersion: Bun.version,
+    platform: `${process.platform} ${process.arch}`,
+  };
+}
+
+export async function showStatus(deps?: Partial<StatusDeps>): Promise<void> {
+  const d = { ...defaultDeps(), ...deps };
+
+  const isMac = d.isMacArm64();
 
   // CoreML status
   let coremlState: CoreMLInstallState | "n/a" = "n/a";
   if (isMac) {
-    const binPath = getCoreMLBinPath();
-    coremlState = getCoreMLInstallState({
-      binPath,
-      verifyReady: (path) => getCoreMLInstallStatus(path),
-    });
+    const binPath = d.getCoreMLBinPath();
+    try {
+      coremlState = d.getCoreMLState();
+    } catch {
+      coremlState = "missing";
+    }
 
     log.info("CoreML (macOS Apple Silicon):");
     const binInstalled = coremlState !== "missing";
     log.info(formatStatusLine("Binary", binInstalled ? binPath : null, binInstalled));
 
     const modelsInstalled = coremlState === "ready";
-    const modelDir = getCoreMLSupportDir();
+    const modelDir = d.getCoreMLSupportDir();
     log.info(formatStatusLine("Models", modelsInstalled ? modelDir : null, modelsInstalled));
     log.info("");
   }
 
   // ONNX status
-  const modelDir = getModelDir();
-  const onnxInstalled = isModelCached();
+  const modelDir = d.getModelDir();
+  const onnxInstalled = d.isModelCached();
   log.info("ONNX:");
   log.info(formatStatusLine("Models", onnxInstalled ? modelDir : null, onnxInstalled));
   log.info("");
 
   // ffmpeg
-  const ffmpegPath = Bun.which("ffmpeg");
+  const ffmpegPath = d.whichFfmpeg();
   log.info(formatStatusLine("ffmpeg", ffmpegPath, !!ffmpegPath, "not found"));
 
   // Runtime info
-  log.info(formatStatusLine("Runtime", `Bun ${Bun.version}`, true));
-  log.info(formatStatusLine("Platform", platform, true));
+  log.info(formatStatusLine("Runtime", `Bun ${d.bunVersion}`, true));
+  log.info(formatStatusLine("Platform", d.platform, true));
   log.info("");
 
   // Suggestions
