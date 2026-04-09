@@ -9,6 +9,29 @@ import { log } from "./log";
 
 const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
 
+async function performInstall(options: { coreml: boolean; onnx: boolean; noCache: boolean }) {
+  const { coreml, onnx, noCache } = options;
+  try {
+    if (coreml) {
+      if (!isMacArm64()) {
+        log.error("CoreML backend is only available on macOS Apple Silicon.");
+        process.exit(1);
+      }
+      await downloadCoreML(noCache);
+    } else if (onnx) {
+      await downloadModel(noCache);
+    } else if (isMacArm64()) {
+      await downloadCoreML(noCache);
+    } else {
+      await downloadModel(noCache);
+    }
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    log.error(message);
+    process.exit(1);
+  }
+}
+
 export const installCommand = defineCommand({
   meta: {
     name: "install",
@@ -32,27 +55,9 @@ export const installCommand = defineCommand({
     },
   },
   async run({ args }) {
-    // citty proxy resolves no-cache → noCache at runtime
+    // Use bracket notation for hyphenated arg name
     const noCache = args["no-cache"] ?? false;
-    try {
-      if (args.coreml) {
-        if (!isMacArm64()) {
-          log.error("CoreML backend is only available on macOS Apple Silicon.");
-          process.exit(1);
-        }
-        await downloadCoreML(noCache);
-      } else if (args.onnx) {
-        await downloadModel(noCache);
-      } else if (isMacArm64()) {
-        await downloadCoreML(noCache);
-      } else {
-        await downloadModel(noCache);
-      }
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      log.error(message);
-      process.exit(1);
-    }
+    await performInstall({ coreml: args.coreml, onnx: args.onnx, noCache });
   },
 });
 
@@ -70,47 +75,17 @@ export const mainCommand = defineCommand({
       description: "Output results as JSON",
       default: false,
     },
-    coreml: {
-      type: "boolean",
-      description: "Force CoreML backend (install subcommand)",
-      default: false,
-    },
-    onnx: {
-      type: "boolean",
-      description: "Force ONNX backend (install subcommand)",
-      default: false,
-    },
-    "no-cache": {
-      type: "boolean",
-      description: "Re-download even if cached (install subcommand)",
-      default: false,
-    },
   },
   async run({ args }) {
     const positional = args._ as string[];
 
     // Manual subcommand routing: "parakeet install [flags]"
     if (positional[0] === "install") {
-      const noCache = args["no-cache"] ?? false;
-      try {
-        if (args.coreml) {
-          if (!isMacArm64()) {
-            log.error("CoreML backend is only available on macOS Apple Silicon.");
-            process.exit(1);
-          }
-          await downloadCoreML(noCache);
-        } else if (args.onnx) {
-          await downloadModel(noCache);
-        } else if (isMacArm64()) {
-          await downloadCoreML(noCache);
-        } else {
-          await downloadModel(noCache);
-        }
-      } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error(message);
-        process.exit(1);
-      }
+      const argv = process.argv;
+      const coreml = argv.includes("--coreml");
+      const onnx = argv.includes("--onnx");
+      const noCache = argv.includes("--no-cache");
+      await performInstall({ coreml, onnx, noCache });
       return;
     }
 
