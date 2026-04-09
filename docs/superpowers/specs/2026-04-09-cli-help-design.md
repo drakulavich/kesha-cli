@@ -76,10 +76,13 @@ Transcript text here.
 
 **Single file, JSON (`parakeet --json audio.ogg`):**
 ```json
-[{"file":"audio.ogg","text":"Transcript text here."}]
+[
+  {
+    "file": "audio.ogg",
+    "text": "Transcript text here."
+  }
+]
 ```
-
-JSON output is always an array, even for a single file — consistent for programmatic consumers.
 
 **Multiple files, text:**
 ```
@@ -92,13 +95,23 @@ Transcript of second file.
 
 **Multiple files, JSON (`parakeet --json file1.ogg file2.ogg`):**
 ```json
-[{"file":"file1.ogg","text":"Transcript of first file."},{"file":"file2.ogg","text":"Transcript of second file."}]
+[
+  {
+    "file": "file1.ogg",
+    "text": "Transcript of first file."
+  },
+  {
+    "file": "file2.ogg",
+    "text": "Transcript of second file."
+  }
+]
 ```
 
-**Error in JSON mode** — failed files include an `error` field instead of `text`:
-```json
-[{"file":"file1.ogg","text":"Transcript here."},{"file":"bad.ogg","error":"File not found: bad.ogg"}]
-```
+**Conventions (following `gh` / `jq` style):**
+- JSON is always an array, even for a single file — consistent for programmatic consumers
+- Pretty-printed with 2-space indent by default (pipe through `jq -c` for compact)
+- Errors go to stderr as plain text, not embedded in JSON — failed files are omitted from the array
+- Exit code 1 if any file failed
 
 ### Architecture
 
