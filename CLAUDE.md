@@ -18,14 +18,14 @@ Two interfaces: a CLI (`parakeet <audio>`) and a programmatic API (`@drakulavich
 
 ### BUN-ONLY RUNTIME
 
-- This project runs on Bun, not Node.js. Use Bun-native APIs (`Bun.spawn`, `Bun.write`, `Bun.file`)
+- This project runs on Bun, not Node.js. Use Bun-native APIs (`Bun.spawn`, `Bun.write`, `Bun.file`, `Bun.which`)
 - TypeScript is executed directly by Bun — no build step
 - The `ort-backend-fix.ts` workaround is required for onnxruntime-node CJS/ESM bridge under Bun
 
 ### EXTERNAL DEPENDENCY: ffmpeg
 
-- ffmpeg must be in PATH for audio format conversion
-- All audio is converted to 16kHz mono Float32 PCM internally
+- ffmpeg must be in PATH for audio format conversion (ONNX backend only)
+- Use `Bun.which("ffmpeg")` to check — not `which` command (cross-platform)
 
 ### RELEASE PROCESS
 
@@ -62,21 +62,13 @@ Two interfaces: a CLI (`parakeet <audio>`) and a programmatic API (`@drakulavich
 ## Build Commands
 
 ```bash
-# Install dependencies
-bun install
-
-# Run CLI
-bun run src/cli.ts <audio_file>
-bun run src/cli.ts install
-bun run src/cli.ts --version
-
-# Tests
-bun test                              # All tests
-bun run test:unit                     # Unit tests only (src/__tests__/)
-bun run test:integration              # Integration tests (tests/integration/)
-
-# Type check
-bunx tsc --noEmit
+bun install                    # Install dependencies
+make test                      # Unit + integration tests
+make lint                      # Type check
+make smoke-test                # Link + install + run against fixtures
+make release                   # lint + test + smoke-test
+make publish                   # release + npm publish
+make benchmark-coreml          # CoreML vs WhisperKit (local, macOS only)
 ```
 
 ## Project Structure
@@ -89,9 +81,12 @@ parakeet-cli/
 │   ├── cli.ts                    # CLI argument parsing, install/transcribe commands
 │   ├── lib.ts                    # Public API (transcribe, downloadModel, downloadCoreML)
 │   ├── transcribe.ts             # Backend selection: CoreML first, ONNX fallback
-│   ├── coreml.ts                 # CoreML backend: detection, subprocess invocation
-│   ├── models.ts                 # Model/binary download, cache check, requireModel
+│   ├── models.ts                 # Thin re-export layer (onnx-install + coreml-install)
+│   ├── onnx-install.ts           # ONNX model download, cache check, requireModel
+│   ├── coreml-install.ts         # CoreML binary + model download with capabilities handshake
+│   ├── coreml.ts                 # CoreML backend: detection, subprocess invocation, wav retry
 │   ├── audio.ts                  # ffmpeg-based audio conversion to Float32 PCM
+│   ├── benchmark-report.ts       # Benchmark markdown report generation
 │   ├── preprocess.ts             # Mel-spectrogram extraction (nemo128.onnx)
 │   ├── encoder.ts                # FastConformer encoder (encoder-model.onnx)
 │   ├── decoder.ts                # RNN-T joint decoder + beam search (decoder_joint-model.onnx)
@@ -99,9 +94,17 @@ parakeet-cli/
 │   ├── ort-backend-fix.ts        # Bun CJS/ESM workaround for onnxruntime-node
 │   └── __tests__/                # Unit tests
 ├── tests/
-│   └── integration/              # E2E CLI tests
-├── docs/
-│   └── superpowers/specs/        # Design documents
+│   └── integration/              # E2E tests (require backend + ffmpeg)
+├── scripts/
+│   ├── benchmark.ts              # CI benchmark (faster-whisper vs parakeet)
+│   ├── benchmark-coreml.ts       # Local CoreML benchmark (WhisperKit vs parakeet)
+│   └── smoke-test.ts             # Pre-release fixture verification
+├── .github/
+│   ├── scripts/                  # CI helper scripts (TypeScript)
+│   ├── actions/                  # Composite actions (setup-bun, install-parakeet-backend)
+│   └── workflows/                # CI, benchmark, build-coreml
+├── swift/                        # CoreML Swift binary (built by CI)
+├── Makefile                      # Development commands
 └── package.json
 ```
 
@@ -118,7 +121,7 @@ transcribe(audioPath)
 
 ### CoreML Backend (macOS Apple Silicon)
 
-A pre-built Swift binary (`~/.cache/parakeet/coreml/bin/parakeet-coreml`) wraps [FluidAudio](https://github.com/FluidInference/FluidAudio) for CoreML inference on Apple Neural Engine. Invoked as a subprocess. CoreML model files are managed by FluidAudio internally.
+A pre-built Swift binary (`~/.cache/parakeet/coreml/bin/parakeet-coreml`) wraps [FluidAudio](https://github.com/FluidInference/FluidAudio) for CoreML inference on Apple Neural Engine. Invoked as a subprocess. `parakeet install` downloads both the binary and CoreML model files.
 
 ### ONNX Backend (cross-platform)
 
@@ -130,16 +133,6 @@ Audio file (any format)
   → [decoder.ts] decoder_joint-model.onnx → Token IDs (beam search)
   → [tokenizer.ts] vocab.txt → Transcript text
 ```
-
-### Model Files (ONNX backend, `~/.cache/parakeet/v3/`)
-
-| File | Purpose |
-|------|---------|
-| `nemo128.onnx` | Audio preprocessor (waveform → 128-dim mel-spectrogram) |
-| `encoder-model.onnx` | FastConformer encoder |
-| `encoder-model.onnx.data` | Encoder weights (external data) |
-| `decoder_joint-model.onnx` | RNN-T joint decoder |
-| `vocab.txt` | Token vocabulary |
 
 ### Key Constants
 
@@ -155,7 +148,7 @@ import { transcribe, downloadModel, downloadCoreML } from "@drakulavich/parakeet
 
 const text = await transcribe("audio.wav", { modelDir?, beamWidth? });
 await downloadModel(noCache?, modelDir?);  // ONNX models
-await downloadCoreML(noCache?);            // CoreML binary
+await downloadCoreML(noCache?);            // CoreML binary + models
 ```
 
 ## Code Style
@@ -163,7 +156,7 @@ await downloadCoreML(noCache?);            // CoreML binary
 - **TypeScript**: Strict mode, ESNext target
 - **No build step**: Bun runs `.ts` directly
 - **Imports**: Use relative paths (`./models`, not `src/models`)
-- **Error output**: Use `console.error()` for progress/errors, `process.stdout.write()` for results
+- **Progress/errors**: `console.error()` — **Success messages**: `console.log()`
 - **ONNX tensors**: Always use `.slice()` not `.subarray()` — Bun doesn't support subarray views as ONNX tensor data
 
 ## CI/CD
@@ -176,15 +169,20 @@ await downloadCoreML(noCache?);            // CoreML binary
 
 ### Workflows
 
-GitHub Actions:
-- `.github/workflows/ci.yml` — runs on push/PR to main, matrix: ubuntu, windows, macos. Type check + unit tests.
-- `.github/workflows/build-coreml.yml` — builds Swift binary on release publish, attaches to GitHub release as `parakeet-coreml-darwin-arm64`.
+- `.github/workflows/ci.yml` — runs on PRs to main. Unit tests (ubuntu/windows/macos) + integration tests (macos). Type check on ubuntu only.
+- `.github/workflows/build-coreml.yml` — triggers on tag push (`v*`). Builds Swift binary, creates GitHub release with binary attached.
+- `.github/workflows/benchmark.yml` — triggers on release publish. Runs faster-whisper vs parakeet on ubuntu, commits results to BENCHMARK.md via PR.
+
+### Composite Actions
+
+- `.github/actions/setup-bun/` — setup Bun with dependency caching
+- `.github/actions/install-parakeet-backend/` — install backend with CoreML/ffmpeg caching
 
 ## Swift Binary (`swift/`)
 
-A minimal Swift package wrapping FluidAudio. Built by CI, not by end users.
-- `swift/Package.swift` — depends on FluidAudio >= 0.13.6
-- `swift/Sources/ParakeetCoreML/main.swift` — reads audio, transcribes, prints to stdout
+A minimal Swift package wrapping FluidAudio. Built by CI on tag push, not by end users.
+- `swift/Package.swift` — depends on FluidAudio
+- `swift/Sources/ParakeetCoreML/main.swift` — supports `--download-only`, `--capabilities`, and audio transcription
 
 ## Platform Requirements
 

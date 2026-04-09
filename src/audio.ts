@@ -40,7 +40,7 @@ async function convertAudioWithFfmpeg(
     throw new Error(`file not found: ${inputPath}`);
   }
 
-  await assertFfmpegExists();
+  assertFfmpegExists();
 
   const tmpPath = join(tmpdir(), `parakeet-${randomUUID()}.${extension}`);
 
@@ -49,21 +49,21 @@ async function convertAudioWithFfmpeg(
     { stdout: "pipe", stderr: "pipe" }
   );
 
-  const exitCode = await proc.exited;
+  const [exitCode, stderr] = await Promise.all([
+    proc.exited,
+    new Response(proc.stderr).text(),
+  ]);
 
   if (exitCode !== 0) {
-    const stderr = await new Response(proc.stderr).text();
     throw new Error(`failed to convert audio: ${stderr.trim().split("\n").pop()}`);
   }
 
   return tmpPath;
 }
 
-async function assertFfmpegExists(): Promise<void> {
+function assertFfmpegExists(): void {
   if (ffmpegChecked) return;
-  const proc = Bun.spawn(["which", "ffmpeg"], { stdout: "pipe", stderr: "pipe" });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
+  if (!Bun.which("ffmpeg")) {
     throw new Error("ffmpeg not found in PATH");
   }
   ffmpegChecked = true;
