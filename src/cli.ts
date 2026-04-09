@@ -118,7 +118,7 @@ export const mainCommand = defineCommand({
         const lang = detectLanguage(text);
 
         const mismatchWarning = checkLanguageMismatch(args.lang, lang);
-        if (mismatchWarning) log.warn(mismatchWarning);
+        if (mismatchWarning) log.warn(`${file}: ${mismatchWarning}`);
 
         results.push({ file, text, lang });
       } catch (err: unknown) {
