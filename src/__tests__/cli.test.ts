@@ -3,7 +3,7 @@ import { renderUsage } from "citty";
 import { mainCommand, installCommand } from "../cli";
 
 describe("CLI help", () => {
-  test("main help contains usage and commands", async () => {
+  test("main help contains usage and install info", async () => {
     const usage = await renderUsage(mainCommand);
     expect(usage).toContain("USAGE");
     expect(usage).toContain("install");

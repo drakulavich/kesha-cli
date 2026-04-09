@@ -32,7 +32,6 @@ describe("e2e-cli", () => {
   test("missing file prints error and exits 1", async () => {
     const { stderr, exitCode } = await runCli(["nonexistent.wav"]);
     expect(exitCode).toBe(1);
-    // citty treats the first positional as a subcommand when subCommands are defined
-    expect(stderr.toLowerCase()).toMatch(/file not found|unknown command/);
+    expect(stderr.toLowerCase()).toContain("file not found");
   });
 });
