@@ -39,4 +39,10 @@ describe("formatProgressBar", () => {
     expect(bar).toContain("100.0MB");
     expect(bar).toContain("200.0MB");
   });
+
+  test("handles zero total without NaN", () => {
+    const bar = formatProgressBar("file.onnx", 0, 0);
+    expect(bar).toContain("0%");
+    expect(bar).not.toContain("NaN");
+  });
 });

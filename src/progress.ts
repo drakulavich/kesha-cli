@@ -7,7 +7,7 @@ export function formatBytes(bytes: number): string {
 }
 
 export function formatProgressBar(label: string, downloaded: number, total: number): string {
-  const pct = Math.min(100, Math.floor((downloaded / total) * 100));
+  const pct = total <= 0 ? 0 : Math.min(100, Math.floor((downloaded / total) * 100));
   const filled = Math.round((pct / 100) * BAR_WIDTH);
   const empty = BAR_WIDTH - filled;
   const bar = "█".repeat(filled) + "░".repeat(empty);
