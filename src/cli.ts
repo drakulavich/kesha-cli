@@ -1,11 +1,22 @@
 #!/usr/bin/env bun
 
 import { defineCommand, runMain } from "citty";
+import { detect } from "tinyld";
 import { transcribe } from "./lib";
 import { downloadModel } from "./onnx-install";
 import { downloadCoreML } from "./coreml-install";
 import { isMacArm64 } from "./coreml";
 import { log } from "./log";
+
+export function detectLanguage(text: string): string {
+  if (!text) return "";
+  return detect(text);
+}
+
+export function checkLanguageMismatch(expected: string | undefined, detected: string): string | null {
+  if (!expected || !detected || expected === detected) return null;
+  return `warning: expected language "${expected}" but detected "${detected}"`;
+}
 
 const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
 
