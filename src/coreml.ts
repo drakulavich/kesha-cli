@@ -39,8 +39,7 @@ export function shouldRetryCoreMLWithWav(audioPath: string, error: unknown): boo
   }
 
   const message = error instanceof Error ? error.message : String(error);
-  return message.includes("com.apple.coreaudio.avfaudio error")
-    || message.includes("The operation couldn’t be completed. (com.apple.coreaudio.avfaudio error");
+  return message.includes("com.apple.coreaudio.avfaudio error");
 }
 
 async function runCoreML(audioPath: string): Promise<string> {
@@ -57,7 +56,7 @@ async function runCoreML(audioPath: string): Promise<string> {
   ]);
 
   if (exitCode !== 0) {
-    throw new Error(stderr);
+    throw new Error(stderr.trim() || `parakeet-coreml exited with code ${exitCode}`);
   }
 
   return stdout.trim();

@@ -3,14 +3,12 @@
 ## Build & Test Commands
 
 ```bash
-bun install                                    # Install dependencies
-bun test                                       # Run all tests
-bun run test:unit                              # Unit tests only (src/__tests__/)
-bun run test:integration                       # Integration tests (tests/integration/)
-bunx tsc --noEmit                              # Type check
-bun run src/cli.ts <audio_file>                # Run CLI
-bun run src/cli.ts install                     # Download backend
-bun run src/cli.ts --version                   # Show version
+bun install                    # Install dependencies
+make test                      # Unit + integration tests
+make lint                      # Type check
+make smoke-test                # Link + install + run against fixtures
+make release                   # lint + test + smoke-test
+make publish                   # release + npm publish
 ```
 
 ## Architecture
@@ -18,16 +16,22 @@ bun run src/cli.ts --version                   # Show version
 - **src/cli.ts**: CLI entry point — argument parsing, install/transcribe commands
 - **src/lib.ts**: Public API — `transcribe`, `downloadModel`, `downloadCoreML`
 - **src/transcribe.ts**: Backend selection — CoreML first, ONNX fallback
-- **src/coreml.ts**: CoreML backend — platform detection, subprocess invocation
-- **src/models.ts**: Model/binary download, cache management
-- **src/audio.ts → preprocess.ts → encoder.ts → decoder.ts → tokenizer.ts**: ONNX inference pipeline
+- **src/models.ts**: Thin re-export layer for `onnx-install` + `coreml-install`
+- **src/onnx-install.ts**: ONNX model download, cache check, requireModel
+- **src/coreml-install.ts**: CoreML binary + model download with capabilities handshake
+- **src/coreml.ts**: CoreML backend — detection, subprocess invocation, wav retry
+- **src/audio.ts**: ffmpeg-based audio conversion
+- **src/benchmark-report.ts**: Benchmark markdown generation
+- **src/preprocess.ts → encoder.ts → decoder.ts → tokenizer.ts**: ONNX inference pipeline
 - **swift/**: Swift helper binary wrapping FluidAudio for CoreML transcription
-- **Processing Pipeline**: Audio → (CoreML subprocess | ONNX pipeline) → Transcript text
+- **scripts/**: Benchmark + smoke test scripts (TypeScript)
+- **.github/scripts/**: CI helper scripts (TypeScript)
+- **.github/actions/**: Composite actions (setup-bun, install-parakeet-backend)
 
 ## Critical Rules
 
 - **NEVER** auto-download models — use `parakeet install`, show error if missing
-- **NEVER** use Node.js APIs — this is Bun-only (`Bun.spawn`, `Bun.write`, `Bun.file`)
+- **NEVER** use Node.js APIs — this is Bun-only (`Bun.spawn`, `Bun.write`, `Bun.file`, `Bun.which`)
 - **NEVER** use `.subarray()` for ONNX tensors — use `.slice()` (Bun limitation)
 - **NEVER** push directly to `main` — it is a protected branch
 - All changes must go through pull requests: create a feature branch, push, open a PR
@@ -39,6 +43,18 @@ bun run src/cli.ts --version                   # Show version
 - **BEFORE npm publish**: ask the user to run `make smoke-test`. Do NOT publish without explicit user confirmation that tests pass.
 - **BEFORE pushing**: run `bun test && bunx tsc --noEmit` locally and verify all tests pass. Do NOT push broken code.
 - **ALWAYS write proper error handling**: errors must be human-readable with context (what failed, why, what to do). Never swallow errors silently. Never let a function return success when it failed.
+
+## Release Process
+
+```bash
+# 1. Bump version in package.json via PR, merge
+# 2. Verify locally
+make release
+# 3. Tag and push — CI builds binary + creates GitHub release
+git tag v0.8.0 && git push --tags
+# 4. Publish to npm after CI passes
+npm publish --access public
+```
 
 ## Git Worktrees for Big Changes
 
@@ -63,7 +79,7 @@ Use worktrees when:
 - TypeScript strict mode, ESNext target
 - No build step — Bun runs `.ts` directly
 - Relative imports (`./models`, not `src/models`)
-- `console.error()` for progress/errors, `process.stdout.write()` for results
+- `console.error()` for progress/errors, `console.log()` for success messages
 - Follow existing patterns in the codebase
 - Tests use `import { describe, test, expect } from "bun:test"`
 
@@ -72,4 +88,5 @@ Use worktrees when:
 - **CoreML** (macOS arm64): Pre-built Swift binary at `~/.cache/parakeet/coreml/bin/parakeet-coreml`, invoked as subprocess
 - **ONNX** (cross-platform): Model files at `~/.cache/parakeet/v3/`, run in-process via onnxruntime-node
 - `parakeet install` auto-detects platform: CoreML on macOS arm64, ONNX elsewhere
+- CoreML install: downloads binary + model files (via `--download-only` flag)
 - Override with `--coreml` or `--onnx` flags
