@@ -3,6 +3,7 @@ import { homedir } from "os";
 import { existsSync, mkdirSync, chmodSync } from "fs";
 import { getCoreMLBinPath } from "./coreml";
 import { log } from "./log";
+import { createProgressBar } from "./progress";
 
 const COREML_BINARY_NAME = "parakeet-coreml-darwin-arm64";
 const GITHUB_REPO = "drakulavich/parakeet-cli";
@@ -176,7 +177,9 @@ async function fetchCoreMLBinary(): Promise<Response> {
   res = await fetch(versionUrl, { redirect: "follow" });
 
   if (!res.ok) {
-    throw new Error(`Failed to download CoreML binary (HTTP ${res.status}). No release found with ${COREML_BINARY_NAME}.`);
+    throw new Error(
+      `Failed to download CoreML binary (HTTP ${res.status})\n  No release found matching ${COREML_BINARY_NAME}\n  Fix: Check https://github.com/drakulavich/parakeet-cli/releases for available versions\n       Or install the ONNX backend instead: parakeet install --onnx`,
+    );
   }
 
   return res;
@@ -232,10 +235,29 @@ export async function downloadCoreML(
   }
 
   if (plan.downloadBinary) {
-    log.progress("Downloading parakeet-coreml binary...");
     const res = await fetchCoreMLBinary();
+    const totalBytes = Number(res.headers.get("content-length") || 0);
+    const progress = createProgressBar("parakeet-coreml binary", totalBytes);
+
     mkdirSync(dirname(binPath), { recursive: true });
-    await Bun.write(binPath, res);
+
+    if (!res.body) {
+      throw new Error(
+        "Download failed: empty response for CoreML binary\n  Fix: Try again — the server may be temporarily unavailable",
+      );
+    }
+
+    const writer = Bun.file(binPath).writer();
+    try {
+      for await (const chunk of res.body) {
+        writer.write(chunk);
+        progress.update(chunk.length);
+      }
+    } finally {
+      writer.end();
+    }
+
+    progress.finish();
     chmodSync(binPath, 0o755);
   }
 
