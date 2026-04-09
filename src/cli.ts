@@ -97,35 +97,43 @@ export const mainCommand = defineCommand({
     }
 
     let hasError = false;
-    const results: Array<{ file: string; text: string }> = [];
+    const results: TranscribeResult[] = [];
 
-    for (let i = 0; i < files.length; i++) {
+    for (const file of files) {
       try {
-        const text = await transcribe(files[i]);
-
-        if (args.json) {
-          results.push({ file: files[i], text });
-        } else {
-          if (files.length > 1) {
-            if (i > 0) process.stdout.write("\n");
-            process.stdout.write(`=== ${files[i]} ===\n`);
-          }
-          if (text) process.stdout.write(text + "\n");
-        }
+        const text = await transcribe(file);
+        results.push({ file, text });
       } catch (err: unknown) {
         hasError = true;
         const message = err instanceof Error ? err.message : String(err);
-        log.error(`${files[i]}: ${message}`);
+        log.error(`${file}: ${message}`);
       }
     }
 
     if (args.json) {
-      process.stdout.write(JSON.stringify(results, null, 2) + "\n");
+      process.stdout.write(formatJsonOutput(results));
+    } else {
+      process.stdout.write(formatTextOutput(results));
     }
 
     if (hasError) process.exit(1);
   },
 });
+
+export type TranscribeResult = { file: string; text: string };
+
+export function formatTextOutput(results: TranscribeResult[]): string {
+  if (results.length === 1) {
+    return results[0].text + "\n";
+  }
+  return results
+    .map((r, i) => (i > 0 ? "\n" : "") + `=== ${r.file} ===\n${r.text}\n`)
+    .join("");
+}
+
+export function formatJsonOutput(results: TranscribeResult[]): string {
+  return JSON.stringify(results, null, 2) + "\n";
+}
 
 if (import.meta.main) {
   runMain(mainCommand);
