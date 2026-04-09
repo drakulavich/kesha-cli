@@ -1,6 +1,7 @@
 import { join } from "path";
 import { homedir } from "os";
 import { existsSync, mkdirSync } from "fs";
+import { log } from "./log";
 
 export const HF_REPO = "istupakov/parakeet-tdt-0.6b-v3-onnx";
 
@@ -48,7 +49,7 @@ export async function downloadModel(noCache = false, modelDir?: string): Promise
   const dir = modelDir ?? getModelDir();
 
   if (!noCache && isModelCached(dir)) {
-    console.log("Model already downloaded.");
+    log.success("Model already downloaded.");
     return dir;
   }
 
@@ -60,7 +61,7 @@ export async function downloadModel(noCache = false, modelDir?: string): Promise
 
     if (!noCache && existsSync(dest)) continue;
 
-    console.error(`Downloading ${file}...`);
+    log.progress(`Downloading ${file}...`);
 
     let res: Response;
     try {
@@ -93,6 +94,6 @@ export async function downloadModel(noCache = false, modelDir?: string): Promise
     }
   }
 
-  console.log("Model downloaded successfully.");
+  log.success("Model downloaded successfully.");
   return dir;
 }

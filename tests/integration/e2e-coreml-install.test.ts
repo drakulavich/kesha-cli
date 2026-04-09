@@ -148,7 +148,7 @@ describe("e2e-coreml-install", () => {
       });
 
       expect(result.exitCode).toBe(0);
-      expect(result.stderr).toContain("Downloading parakeet-coreml binary...");
+      expect(result.stdout).toContain("Downloading parakeet-coreml binary...");
       expect(result.stdout).toContain("downloaded");
       expect(result.stdout).toContain("CoreML backend installed successfully.");
 

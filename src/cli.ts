@@ -4,6 +4,7 @@ import { transcribe } from "./lib";
 import { downloadModel } from "./onnx-install";
 import { downloadCoreML } from "./coreml-install";
 import { isMacArm64 } from "./coreml";
+import { log } from "./log";
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -24,7 +25,7 @@ async function main(): Promise<void> {
     try {
       if (forceCoreML) {
         if (!isMacArm64()) {
-          console.error("Error: CoreML backend is only available on macOS Apple Silicon.");
+          log.error("CoreML backend is only available on macOS Apple Silicon.");
           process.exit(1);
         }
         await downloadCoreML(noCache);
@@ -37,7 +38,7 @@ async function main(): Promise<void> {
       }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`Error: ${message}`);
+      log.error(message);
       process.exit(1);
     }
     process.exit(0);
@@ -46,8 +47,8 @@ async function main(): Promise<void> {
   const file = positional[0];
 
   if (!file) {
-    console.error("Usage: parakeet [--version] <audio_file>");
-    console.error("       parakeet install [--coreml | --onnx] [--no-cache]");
+    log.info("Usage: parakeet [--version] <audio_file>");
+    log.info("       parakeet install [--coreml | --onnx] [--no-cache]");
     process.exit(1);
   }
 
@@ -56,7 +57,7 @@ async function main(): Promise<void> {
     if (text) process.stdout.write(text + "\n");
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(message);
+    log.error(message);
     process.exit(1);
   }
 }
