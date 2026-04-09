@@ -84,10 +84,17 @@ export function getFfmpegInstallHint(): string {
   return "  https://ffmpeg.org/download.html";
 }
 
-function assertFfmpegExists(): void {
+export function assertFfmpegExists(): void {
   if (ffmpegChecked) return;
   if (!Bun.which("ffmpeg")) {
-    throw new Error("ffmpeg not found in PATH");
+    const hint = getFfmpegInstallHint();
+    throw new Error(
+      `ffmpeg is required but not found in PATH.\n\nInstall it:\n${hint}`
+    );
   }
   ffmpegChecked = true;
+}
+
+export function resetFfmpegCheck(): void {
+  ffmpegChecked = false;
 }
