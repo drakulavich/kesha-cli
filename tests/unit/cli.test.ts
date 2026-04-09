@@ -120,8 +120,8 @@ describe("language detection", () => {
 });
 
 describe("CLI help with status", () => {
-  test("usage text includes status command", () => {
-    const usage = "Usage: parakeet <audio_file> [audio_file ...]\n       parakeet install [--coreml | --onnx] [--no-cache]\n       parakeet status";
-    expect(usage).toContain("status");
+  test("main description mentions install command", async () => {
+    const usage = await renderUsage(mainCommand);
+    expect(usage).toContain("install");
   });
 });

@@ -45,7 +45,7 @@ export function collectSuggestions(info: StatusInfo): string[] {
 export interface StatusDeps {
   isMacArm64: () => boolean;
   getCoreMLBinPath: () => string;
-  getCoreMLState: () => CoreMLInstallState;
+  getCoreMLState: (binPath: string) => CoreMLInstallState;
   getCoreMLSupportDir: () => string;
   isModelCached: () => boolean;
   getModelDir: () => string;
@@ -58,8 +58,8 @@ function defaultDeps(): StatusDeps {
   return {
     isMacArm64,
     getCoreMLBinPath,
-    getCoreMLState: () => getCoreMLInstallState({
-      binPath: getCoreMLBinPath(),
+    getCoreMLState: (binPath) => getCoreMLInstallState({
+      binPath,
       verifyReady: (path) => getCoreMLInstallStatus(path),
     }),
     getCoreMLSupportDir,
@@ -81,7 +81,7 @@ export async function showStatus(deps?: Partial<StatusDeps>): Promise<void> {
   if (isMac) {
     const binPath = d.getCoreMLBinPath();
     try {
-      coremlState = d.getCoreMLState();
+      coremlState = d.getCoreMLState(binPath);
     } catch {
       coremlState = "missing";
     }

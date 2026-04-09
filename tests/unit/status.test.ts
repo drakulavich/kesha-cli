@@ -59,7 +59,7 @@ describe("showStatus", () => {
   const baseDeps = {
     isMacArm64: () => false,
     getCoreMLBinPath: () => "/mock/bin",
-    getCoreMLState: () => "missing" as const,
+    getCoreMLState: (_binPath: string) => "missing" as const,
     getCoreMLSupportDir: () => "/mock/coreml",
     isModelCached: () => true,
     getModelDir: () => "/mock/onnx",
@@ -96,7 +96,7 @@ describe("showStatus", () => {
       await showStatus({
         ...baseDeps,
         isMacArm64: () => true,
-        getCoreMLState: () => "ready",
+        getCoreMLState: () => "ready" as const,
       });
     } finally {
       console.log = origLog;
@@ -137,7 +137,7 @@ describe("showStatus", () => {
       await showStatus({
         ...baseDeps,
         isMacArm64: () => true,
-        getCoreMLState: () => { throw new Error("probe failed"); },
+        getCoreMLState: () => { throw new Error("probe failed"); return "missing" as never; },
       });
     } finally {
       console.log = origLog;

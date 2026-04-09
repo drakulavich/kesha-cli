@@ -2,7 +2,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { existsSync, mkdirSync } from "fs";
 import { log } from "./log";
-import { createProgressBar } from "./progress";
+import { streamResponseToFile } from "./progress";
 
 export const HF_REPO = "istupakov/parakeet-tdt-0.6b-v3-onnx";
 
@@ -77,34 +77,13 @@ export async function downloadModel(noCache = false, modelDir?: string): Promise
       );
     }
 
-    if (!res.body) {
-      throw new Error(
-        `Download failed: empty response for ${file}\n  Fix: Try again — the server may be temporarily unavailable`,
-      );
-    }
-
-    const totalBytes = Number(res.headers.get("content-length") || 0);
-    const progress = createProgressBar(file, totalBytes);
-
-    const writer = Bun.file(dest).writer();
-    let bytes = 0;
-    try {
-      for await (const chunk of res.body) {
-        writer.write(chunk);
-        bytes += chunk.length;
-        progress.update(chunk.length);
-      }
-    } finally {
-      writer.end();
-    }
+    const bytes = await streamResponseToFile(res, dest, file);
 
     if (bytes === 0) {
       throw new Error(
         `Downloaded 0 bytes for ${file}\n  Fix: Try again — the server may be temporarily unavailable`,
       );
     }
-
-    progress.finish();
   }
 
   log.success("Model downloaded successfully.");

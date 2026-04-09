@@ -3,7 +3,7 @@ import { homedir } from "os";
 import { existsSync, mkdirSync, chmodSync } from "fs";
 import { getCoreMLBinPath } from "./coreml";
 import { log } from "./log";
-import { createProgressBar } from "./progress";
+import { streamResponseToFile } from "./progress";
 
 const COREML_BINARY_NAME = "parakeet-coreml-darwin-arm64";
 const GITHUB_REPO = "drakulavich/parakeet-cli";
@@ -236,28 +236,8 @@ export async function downloadCoreML(
 
   if (plan.downloadBinary) {
     const res = await fetchCoreMLBinary();
-    const totalBytes = Number(res.headers.get("content-length") || 0);
-    const progress = createProgressBar("parakeet-coreml binary", totalBytes);
-
     mkdirSync(dirname(binPath), { recursive: true });
-
-    if (!res.body) {
-      throw new Error(
-        "Download failed: empty response for CoreML binary\n  Fix: Try again — the server may be temporarily unavailable",
-      );
-    }
-
-    const writer = Bun.file(binPath).writer();
-    try {
-      for await (const chunk of res.body) {
-        writer.write(chunk);
-        progress.update(chunk.length);
-      }
-    } finally {
-      writer.end();
-    }
-
-    progress.finish();
+    await streamResponseToFile(res, binPath, "parakeet-coreml binary");
     chmodSync(binPath, 0o755);
   }
 

@@ -14,6 +14,36 @@ export function formatProgressBar(label: string, downloaded: number, total: numb
   return `${label}  [${bar}] ${pct}%  ${formatBytes(downloaded)}/${formatBytes(total)}`;
 }
 
+export async function streamResponseToFile(
+  res: Response,
+  destPath: string,
+  label: string,
+): Promise<number> {
+  if (!res.body) {
+    throw new Error(
+      `Download failed: empty response for ${label}\n  Fix: Try again — the server may be temporarily unavailable`,
+    );
+  }
+
+  const totalBytes = Number(res.headers.get("content-length") || 0);
+  const progress = createProgressBar(label, totalBytes);
+
+  const writer = Bun.file(destPath).writer();
+  let bytes = 0;
+  try {
+    for await (const chunk of res.body) {
+      writer.write(chunk);
+      bytes += chunk.length;
+      progress.update(chunk.length);
+    }
+  } finally {
+    writer.end();
+  }
+
+  progress.finish();
+  return bytes;
+}
+
 export function createProgressBar(label: string, totalBytes: number): {
   update(downloadedBytes: number): void;
   finish(): void;
@@ -32,9 +62,13 @@ export function createProgressBar(label: string, totalBytes: number): {
   }
 
   let current = 0;
+  let lastPct = -1;
   return {
     update(downloadedBytes: number) {
       current += downloadedBytes;
+      const pct = totalBytes > 0 ? Math.floor((current / totalBytes) * 100) : 0;
+      if (pct === lastPct) return;
+      lastPct = pct;
       const line = formatProgressBar(label, current, totalBytes);
       process.stderr.write(`\r${line}`);
     },
