@@ -117,4 +117,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
-MIT
+Made with 💛🩵 Published under MIT License.
