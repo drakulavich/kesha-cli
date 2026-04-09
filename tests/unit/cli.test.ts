@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { renderUsage } from "citty";
-import { mainCommand, installCommand, formatTextOutput, formatJsonOutput, detectLanguage, checkLanguageMismatch } from "../cli";
+import { mainCommand, installCommand, formatTextOutput, formatJsonOutput, detectLanguage, checkLanguageMismatch } from "../../src/cli";
 
 describe("CLI help", () => {
   test("main help contains usage and install info", async () => {

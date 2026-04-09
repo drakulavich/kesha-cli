@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { formatProgressBar, formatBytes } from "../progress";
+import { formatProgressBar, formatBytes } from "../../src/progress";
 
 describe("formatBytes", () => {
   test("formats bytes to MB", () => {
@@ -47,7 +47,7 @@ describe("formatProgressBar", () => {
   });
 });
 
-import { createProgressBar } from "../progress";
+import { createProgressBar } from "../../src/progress";
 
 describe("createProgressBar", () => {
   test("non-TTY mode calls log functions", () => {

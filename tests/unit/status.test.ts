@@ -1,5 +1,5 @@
 import { describe, test, expect } from "bun:test";
-import { formatStatusLine, collectSuggestions } from "../status";
+import { formatStatusLine, collectSuggestions } from "../../src/status";
 
 describe("formatStatusLine", () => {
   test("formats installed component", () => {
