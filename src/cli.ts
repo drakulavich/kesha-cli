@@ -1,11 +1,22 @@
 #!/usr/bin/env bun
 
 import { defineCommand, runMain } from "citty";
+import { detect } from "tinyld";
 import { transcribe } from "./lib";
 import { downloadModel } from "./onnx-install";
 import { downloadCoreML } from "./coreml-install";
 import { isMacArm64 } from "./coreml";
 import { log } from "./log";
+
+export function detectLanguage(text: string): string {
+  if (!text) return "";
+  return detect(text);
+}
+
+export function checkLanguageMismatch(expected: string | undefined, detected: string): string | null {
+  if (!expected || !detected || expected === detected) return null;
+  return `warning: expected language "${expected}" but detected "${detected}"`;
+}
 
 const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
 
@@ -73,6 +84,10 @@ export const mainCommand = defineCommand({
       description: "Output results as JSON",
       default: false,
     },
+    lang: {
+      type: "string",
+      description: "Expected language code (ISO 639-1), warn if mismatch",
+    },
   },
   async run({ args }) {
     const positional = args._ as string[];
@@ -100,7 +115,12 @@ export const mainCommand = defineCommand({
     for (const file of files) {
       try {
         const text = await transcribe(file);
-        results.push({ file, text });
+        const lang = detectLanguage(text);
+
+        const mismatchWarning = checkLanguageMismatch(args.lang, lang);
+        if (mismatchWarning) log.warn(`${file}: ${mismatchWarning}`);
+
+        results.push({ file, text, lang });
       } catch (err: unknown) {
         hasError = true;
         const message = err instanceof Error ? err.message : String(err);
@@ -118,7 +138,7 @@ export const mainCommand = defineCommand({
   },
 });
 
-export type TranscribeResult = { file: string; text: string };
+export type TranscribeResult = { file: string; text: string; lang: string };
 
 export function formatTextOutput(results: TranscribeResult[]): string {
   if (results.length === 1) {

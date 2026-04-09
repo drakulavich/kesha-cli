@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { renderUsage } from "citty";
-import { mainCommand, installCommand, formatTextOutput, formatJsonOutput } from "../cli";
+import { mainCommand, installCommand, formatTextOutput, formatJsonOutput, detectLanguage, checkLanguageMismatch } from "../cli";
 
 describe("CLI help", () => {
   test("main help contains usage and install info", async () => {
@@ -20,34 +20,39 @@ describe("CLI help", () => {
     const usage = await renderUsage(mainCommand);
     expect(usage).toContain("--json");
   });
+
+  test("main help contains --lang flag", async () => {
+    const usage = await renderUsage(mainCommand);
+    expect(usage).toContain("--lang");
+  });
 });
 
 describe("output formatting", () => {
   test("single file text: no header", () => {
-    const output = formatTextOutput([{ file: "a.ogg", text: "Hello" }]);
+    const output = formatTextOutput([{ file: "a.ogg", text: "Hello", lang: "en" }]);
     expect(output).toBe("Hello\n");
   });
 
   test("multiple files text: headers per file", () => {
     const output = formatTextOutput([
-      { file: "a.ogg", text: "Hello" },
-      { file: "b.mp3", text: "World" },
+      { file: "a.ogg", text: "Hello", lang: "en" },
+      { file: "b.mp3", text: "World", lang: "en" },
     ]);
     expect(output).toBe("=== a.ogg ===\nHello\n\n=== b.mp3 ===\nWorld\n");
   });
 
   test("JSON output: always array, pretty-printed", () => {
-    const output = formatJsonOutput([{ file: "a.ogg", text: "Hello" }]);
+    const output = formatJsonOutput([{ file: "a.ogg", text: "Hello", lang: "en" }]);
     const parsed = JSON.parse(output);
     expect(Array.isArray(parsed)).toBe(true);
-    expect(parsed).toEqual([{ file: "a.ogg", text: "Hello" }]);
+    expect(parsed).toEqual([{ file: "a.ogg", text: "Hello", lang: "en" }]);
     expect(output).toContain("\n");
   });
 
   test("JSON output: multiple files", () => {
     const output = formatJsonOutput([
-      { file: "a.ogg", text: "Hello" },
-      { file: "b.mp3", text: "World" },
+      { file: "a.ogg", text: "Hello", lang: "en" },
+      { file: "b.mp3", text: "World", lang: "en" },
     ]);
     const parsed = JSON.parse(output);
     expect(parsed).toHaveLength(2);
@@ -58,5 +63,58 @@ describe("output formatting", () => {
   test("JSON output: empty array when no results", () => {
     const output = formatJsonOutput([]);
     expect(JSON.parse(output)).toEqual([]);
+  });
+});
+
+describe("output formatting with lang", () => {
+  test("JSON output includes lang field", () => {
+    const output = formatJsonOutput([{ file: "a.ogg", text: "Hello world", lang: "en" }]);
+    const parsed = JSON.parse(output);
+    expect(parsed[0].lang).toBe("en");
+  });
+
+  test("JSON output includes empty lang when not detected", () => {
+    const output = formatJsonOutput([{ file: "a.ogg", text: "", lang: "" }]);
+    const parsed = JSON.parse(output);
+    expect(parsed[0].lang).toBe("");
+  });
+});
+
+describe("language detection", () => {
+  test("detects English text", () => {
+    const lang = detectLanguage("This is a simple English sentence for testing.");
+    expect(lang).toBe("en");
+  });
+
+  test("detects Russian text", () => {
+    const lang = detectLanguage("Это простое предложение на русском языке для тестирования.");
+    expect(lang).toBe("ru");
+  });
+
+  test("returns empty string for empty text", () => {
+    const lang = detectLanguage("");
+    expect(lang).toBe("");
+  });
+
+  test("checkLanguageMismatch returns null when no expected lang", () => {
+    const warning = checkLanguageMismatch(undefined, "en");
+    expect(warning).toBeNull();
+  });
+
+  test("checkLanguageMismatch returns null when languages match", () => {
+    const warning = checkLanguageMismatch("en", "en");
+    expect(warning).toBeNull();
+  });
+
+  test("checkLanguageMismatch returns warning when languages differ", () => {
+    const warning = checkLanguageMismatch("ru", "en");
+    expect(warning).toContain("expected language");
+    expect(warning).toContain("ru");
+    expect(warning).toContain("en");
+  });
+
+  test("checkLanguageMismatch returns null when detected is empty", () => {
+    const warning = checkLanguageMismatch("en", "");
+    expect(warning).toBeNull();
   });
 });
