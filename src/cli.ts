@@ -5,7 +5,11 @@ import { detect } from "tinyld";
 import { transcribe } from "./lib";
 import { downloadModel } from "./onnx-install";
 import { downloadCoreML } from "./coreml-install";
+import { downloadLangIdOnnx, downloadLangIdCoreML } from "./lang-id-install";
 import { isMacArm64 } from "./coreml";
+import { detectAudioLanguageCoreML, detectTextLanguageCoreML } from "./coreml";
+import { detectAudioLanguageOnnx } from "./lang-id";
+import type { LangDetectResult } from "./lang-id";
 import { log } from "./log";
 import { showStatus } from "./status";
 
@@ -34,6 +38,7 @@ interface InstallCommandArgs {
 interface MainCommandArgs {
   _: string[];
   json: boolean;
+  verbose: boolean;
   lang?: string;
 }
 
@@ -65,9 +70,9 @@ async function performInstall(options: InstallOptions) {
   try {
     const backend = resolveInstallBackend(options);
     if (backend === "coreml") {
-      await downloadCoreML(noCache);
+      await Promise.all([downloadCoreML(noCache), downloadLangIdCoreML(noCache)]);
     } else {
-      await downloadModel(noCache);
+      await Promise.all([downloadModel(noCache), downloadLangIdOnnx(noCache)]);
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -128,6 +133,11 @@ export const mainCommand = defineCommand({
       description: "Output results as JSON",
       default: false,
     },
+    verbose: {
+      type: "boolean",
+      description: "Show language detection details",
+      default: false,
+    },
     lang: {
       type: "string",
       description: "Expected language code (ISO 639-1), warn if mismatch",
@@ -144,15 +154,50 @@ export const mainCommand = defineCommand({
     let hasError = false;
     const results: TranscribeResult[] = [];
 
+    const wantsLangId = !!(args.lang || args.verbose || args.json);
+    const macArm64 = isMacArm64();
+
     for (const file of files) {
       try {
+        let audioLanguage: LangDetectResult | undefined;
+        if (wantsLangId) {
+          const audioResult = macArm64
+            ? await detectAudioLanguageCoreML(file)
+            : await detectAudioLanguageOnnx(file);
+          if (audioResult && audioResult.code) {
+            audioLanguage = audioResult;
+          }
+        }
+
+        if (audioLanguage && args.lang && audioLanguage.confidence > 0.8) {
+          const mismatch = checkLanguageMismatch(args.lang, audioLanguage.code);
+          if (mismatch) log.warn(`${file}: ${mismatch} (from audio)`);
+        }
+
         const text = await transcribe(file);
-        const lang = detectLanguage(text);
+
+        const tinyldLang = detectLanguage(text);
+        let textLanguage: LangDetectResult | undefined;
+
+        if (wantsLangId) {
+          const coremlTextResult = await detectTextLanguageCoreML(text);
+          if (coremlTextResult && coremlTextResult.code) {
+            textLanguage = coremlTextResult;
+          }
+        }
+
+        const lang = textLanguage?.code || tinyldLang;
 
         const mismatchWarning = checkLanguageMismatch(args.lang, lang);
         if (mismatchWarning) log.warn(`${file}: ${mismatchWarning}`);
 
-        results.push({ file, text, lang });
+        results.push({
+          file,
+          text,
+          lang,
+          audioLanguage,
+          textLanguage: textLanguage ?? (tinyldLang ? { code: tinyldLang, confidence: 0 } : undefined),
+        });
       } catch (err: unknown) {
         hasError = true;
         const message = err instanceof Error ? err.message : String(err);
@@ -162,6 +207,8 @@ export const mainCommand = defineCommand({
 
     if (args.json) {
       process.stdout.write(formatJsonOutput(results));
+    } else if (args.verbose) {
+      process.stdout.write(formatVerboseOutput(results));
     } else {
       process.stdout.write(formatTextOutput(results));
     }
@@ -186,7 +233,13 @@ export async function runCli(rawArgs = process.argv.slice(2)): Promise<void> {
   await runMain(mainCommand, { rawArgs });
 }
 
-export type TranscribeResult = { file: string; text: string; lang: string };
+export type TranscribeResult = {
+  file: string;
+  text: string;
+  lang: string;
+  audioLanguage?: LangDetectResult;
+  textLanguage?: LangDetectResult;
+};
 
 export function formatTextOutput(results: TranscribeResult[]): string {
   if (results.length === 1) {
@@ -195,6 +248,29 @@ export function formatTextOutput(results: TranscribeResult[]): string {
   return results
     .map((r, i) => (i > 0 ? "\n" : "") + `=== ${r.file} ===\n${r.text}\n`)
     .join("");
+}
+
+export function formatVerboseOutput(results: TranscribeResult[]): string {
+  return results
+    .map((r, i) => {
+      const lines: string[] = [];
+      if (results.length > 1) {
+        if (i > 0) lines.push("");
+        lines.push(`=== ${r.file} ===`);
+      }
+      if (r.audioLanguage) {
+        lines.push(`Audio language: ${r.audioLanguage.code} (confidence: ${r.audioLanguage.confidence.toFixed(2)})`);
+      }
+      const textLang = r.textLanguage ?? (r.lang ? { code: r.lang, confidence: 0 } : null);
+      if (textLang) {
+        const confStr = textLang.confidence > 0 ? ` (confidence: ${textLang.confidence.toFixed(2)})` : "";
+        lines.push(`Text language: ${textLang.code}${confStr}`);
+      }
+      lines.push("---");
+      lines.push(r.text);
+      return lines.join("\n");
+    })
+    .join("\n") + "\n";
 }
 
 export function formatJsonOutput(results: TranscribeResult[]): string {

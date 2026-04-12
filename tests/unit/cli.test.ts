@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test";
 import { renderUsage } from "citty";
-import { mainCommand, installCommand, statusCommand, formatTextOutput, formatJsonOutput, detectLanguage, checkLanguageMismatch, resolveInstallBackend } from "../../src/cli";
+import { mainCommand, installCommand, statusCommand, formatTextOutput, formatJsonOutput, formatVerboseOutput, detectLanguage, checkLanguageMismatch, resolveInstallBackend } from "../../src/cli";
 
 describe("CLI help", () => {
   test("main help contains usage and install info", async () => {
@@ -24,6 +24,11 @@ describe("CLI help", () => {
   test("main help contains --lang flag", async () => {
     const usage = await renderUsage(mainCommand);
     expect(usage).toContain("--lang");
+  });
+
+  test("main help contains --verbose flag", async () => {
+    const usage = await renderUsage(mainCommand);
+    expect(usage).toContain("--verbose");
   });
 
   test("status help has command description", async () => {
@@ -150,5 +155,48 @@ describe("CLI help with status", () => {
   test("main help includes status command", async () => {
     const usage = await renderUsage(mainCommand);
     expect(usage).toContain("status");
+  });
+});
+
+describe("verbose output formatting", () => {
+  test("verbose output includes language info when audioLanguage present", () => {
+    const results = [{
+      file: "a.ogg", text: "Hello", lang: "en",
+      audioLanguage: { code: "en", confidence: 0.94 },
+      textLanguage: { code: "en", confidence: 0.98 },
+    }];
+    const output = formatVerboseOutput(results);
+    expect(output).toContain("Audio language: en");
+    expect(output).toContain("Text language: en");
+    expect(output).toContain("Hello");
+  });
+
+  test("verbose output omits audio language when not detected", () => {
+    const results = [{ file: "a.ogg", text: "Hello", lang: "en" }];
+    const output = formatVerboseOutput(results);
+    expect(output).not.toContain("Audio language:");
+    expect(output).toContain("Text language: en");
+    expect(output).toContain("Hello");
+  });
+});
+
+describe("JSON output with lang-id fields", () => {
+  test("JSON includes audioLanguage and textLanguage when present", () => {
+    const results = [{
+      file: "a.ogg", text: "Hello", lang: "en",
+      audioLanguage: { code: "en", confidence: 0.94 },
+      textLanguage: { code: "en", confidence: 0.98 },
+    }];
+    const parsed = JSON.parse(formatJsonOutput(results));
+    expect(parsed[0].audioLanguage).toEqual({ code: "en", confidence: 0.94 });
+    expect(parsed[0].textLanguage).toEqual({ code: "en", confidence: 0.98 });
+    expect(parsed[0].lang).toBe("en");
+  });
+
+  test("JSON omits audioLanguage when not detected", () => {
+    const results = [{ file: "a.ogg", text: "Hello", lang: "en" }];
+    const parsed = JSON.parse(formatJsonOutput(results));
+    expect(parsed[0].audioLanguage).toBeUndefined();
+    expect(parsed[0].lang).toBe("en");
   });
 });

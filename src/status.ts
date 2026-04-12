@@ -1,6 +1,7 @@
 import { isMacArm64, getCoreMLBinPath } from "./coreml";
 import { isModelCached, getModelDir } from "./onnx-install";
 import { getCoreMLInstallState, getCoreMLInstallStatus, getCoreMLSupportDir, type CoreMLInstallState } from "./coreml-install";
+import { isLangIdOnnxCached, getLangIdOnnxDir, isLangIdCoreMLCached, getLangIdCoreMLDir } from "./lang-id-install";
 import { log } from "./log";
 import pc from "picocolors";
 
@@ -150,6 +151,19 @@ export async function showStatus(deps?: Partial<StatusDeps>): Promise<void> {
   const onnxInstalled = d.isModelCached();
   log.info("ONNX:");
   log.info(formatStatusLine("Models", onnxInstalled ? modelDir : null, onnxInstalled));
+  log.info("");
+
+  // Lang-ID model status
+  const langIdOnnxDir = getLangIdOnnxDir();
+  const langIdOnnxInstalled = isLangIdOnnxCached();
+  log.info("Lang-ID:");
+  log.info(formatStatusLine("ONNX model", langIdOnnxInstalled ? langIdOnnxDir : null, langIdOnnxInstalled));
+
+  if (isMac) {
+    const langIdCoreMLDir = getLangIdCoreMLDir();
+    const langIdCoreMLInstalled = isLangIdCoreMLCached();
+    log.info(formatStatusLine("CoreML model", langIdCoreMLInstalled ? langIdCoreMLDir : null, langIdCoreMLInstalled));
+  }
   log.info("");
 
   // ffmpeg
