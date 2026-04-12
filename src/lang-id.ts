@@ -41,7 +41,6 @@ export async function detectAudioLanguageOnnx(
     return null;
   }
 
-  // Lazy init: load session and labels once
   if (!session || !labelList) {
     ensureOrtBackend();
     session = await ort.InferenceSession.create(join(dir, "lang-id-ecapa.onnx"));
@@ -52,7 +51,7 @@ export async function detectAudioLanguageOnnx(
   const samples =
     allSamples.length > MAX_LANG_ID_SAMPLES
       ? allSamples.slice(0, MAX_LANG_ID_SAMPLES)
-      : allSamples.slice();
+      : allSamples;
 
   const inputTensor = new ort.Tensor("float32", samples, [1, samples.length]);
 

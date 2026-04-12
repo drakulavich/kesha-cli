@@ -70,11 +70,9 @@ async function performInstall(options: InstallOptions) {
   try {
     const backend = resolveInstallBackend(options);
     if (backend === "coreml") {
-      await downloadCoreML(noCache);
-      await downloadLangIdCoreML(noCache);
+      await Promise.all([downloadCoreML(noCache), downloadLangIdCoreML(noCache)]);
     } else {
-      await downloadModel(noCache);
-      await downloadLangIdOnnx(noCache);
+      await Promise.all([downloadModel(noCache), downloadLangIdOnnx(noCache)]);
     }
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -157,13 +155,13 @@ export const mainCommand = defineCommand({
     const results: TranscribeResult[] = [];
 
     const wantsLangId = !!(args.lang || args.verbose || args.json);
+    const macArm64 = isMacArm64();
 
     for (const file of files) {
       try {
-        // Pre-transcription audio lang-id (lazy)
         let audioLanguage: LangDetectResult | undefined;
         if (wantsLangId) {
-          const audioResult = isMacArm64()
+          const audioResult = macArm64
             ? await detectAudioLanguageCoreML(file)
             : await detectAudioLanguageOnnx(file);
           if (audioResult && audioResult.code) {
@@ -171,29 +169,25 @@ export const mainCommand = defineCommand({
           }
         }
 
-        // Audio lang-id mismatch warning (pre-transcription)
         if (audioLanguage && args.lang && audioLanguage.confidence > 0.8) {
           const mismatch = checkLanguageMismatch(args.lang, audioLanguage.code);
           if (mismatch) log.warn(`${file}: ${mismatch} (from audio)`);
         }
 
-        // Transcribe
         const text = await transcribe(file);
 
-        // Post-transcription text lang-id
         const tinyldLang = detectLanguage(text);
         let textLanguage: LangDetectResult | undefined;
 
-        // Try NLLanguageRecognizer on macOS (takes priority)
-        const coremlTextResult = await detectTextLanguageCoreML(text);
-        if (coremlTextResult && coremlTextResult.code) {
-          textLanguage = coremlTextResult;
+        if (wantsLangId) {
+          const coremlTextResult = await detectTextLanguageCoreML(text);
+          if (coremlTextResult && coremlTextResult.code) {
+            textLanguage = coremlTextResult;
+          }
         }
 
-        // Use NLLanguageRecognizer result for lang field when available, else tinyld
         const lang = textLanguage?.code || tinyldLang;
 
-        // Text lang-id mismatch warning (post-transcription, existing behavior)
         const mismatchWarning = checkLanguageMismatch(args.lang, lang);
         if (mismatchWarning) log.warn(`${file}: ${mismatchWarning}`);
 

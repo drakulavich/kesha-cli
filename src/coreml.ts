@@ -55,41 +55,9 @@ export function parseCoreMLLangResult(stdout: string): LangDetectResult | null {
   }
 }
 
-export async function detectAudioLanguageCoreML(audioPath: string): Promise<LangDetectResult | null> {
-  if (!isCoreMLInstalled()) return null;
+async function runCoreMLCommand(args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const binPath = getCoreMLBinPath();
-  const proc = Bun.spawn([binPath, "detect-lang", audioPath], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, , exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (exitCode !== 0) return null;
-  return parseCoreMLLangResult(stdout.trim());
-}
-
-export async function detectTextLanguageCoreML(text: string): Promise<LangDetectResult | null> {
-  if (!isCoreMLInstalled()) return null;
-  const binPath = getCoreMLBinPath();
-  const proc = Bun.spawn([binPath, "detect-text-lang", text], {
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, , exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (exitCode !== 0) return null;
-  return parseCoreMLLangResult(stdout.trim());
-}
-
-async function runCoreML(audioPath: string): Promise<string> {
-  const binPath = getCoreMLBinPath();
-  const proc = Bun.spawn([binPath, audioPath], {
+  const proc = Bun.spawn([binPath, ...args], {
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -100,9 +68,27 @@ async function runCoreML(audioPath: string): Promise<string> {
     proc.exited,
   ]);
 
-  if (exitCode !== 0) {
-    throw new Error(stderr.trim() || `parakeet-coreml exited with code ${exitCode}`);
-  }
+  return { stdout: stdout.trim(), stderr: stderr.trim(), exitCode };
+}
 
-  return stdout.trim();
+export async function detectAudioLanguageCoreML(audioPath: string): Promise<LangDetectResult | null> {
+  if (!isCoreMLInstalled()) return null;
+  const { stdout, exitCode } = await runCoreMLCommand(["detect-lang", audioPath]);
+  if (exitCode !== 0) return null;
+  return parseCoreMLLangResult(stdout);
+}
+
+export async function detectTextLanguageCoreML(text: string): Promise<LangDetectResult | null> {
+  if (!isCoreMLInstalled()) return null;
+  const { stdout, exitCode } = await runCoreMLCommand(["detect-text-lang", text]);
+  if (exitCode !== 0) return null;
+  return parseCoreMLLangResult(stdout);
+}
+
+async function runCoreML(audioPath: string): Promise<string> {
+  const { stdout, stderr, exitCode } = await runCoreMLCommand([audioPath]);
+  if (exitCode !== 0) {
+    throw new Error(stderr || `parakeet-coreml exited with code ${exitCode}`);
+  }
+  return stdout;
 }

@@ -84,14 +84,12 @@ export async function downloadLangIdCoreML(noCache = false, modelDir?: string): 
 
   mkdirSync(dir, { recursive: true });
 
-  // Download labels.json
   const labelsDest = join(dir, "labels.json");
   if (noCache || !existsSync(labelsDest)) {
     const url = `https://huggingface.co/${LANG_ID_HF_REPO}/resolve/main/labels.json`;
     await downloadSingleFile(url, labelsDest, "labels.json");
   }
 
-  // Download mlpackage as tar.gz and extract
   const archiveName = "lang-id-ecapa.mlpackage.tar.gz";
   const archiveDest = join(dir, archiveName);
 
