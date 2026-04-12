@@ -13,7 +13,7 @@ import {
 
 describe("lang-id-install constants", () => {
   test("LANG_ID_HF_REPO is the correct HuggingFace repo", () => {
-    expect(LANG_ID_HF_REPO).toBe("drakulavich/parakeet-lang-id-ecapa");
+    expect(LANG_ID_HF_REPO).toBe("drakulavich/SpeechBrain-coreml");
   });
 
   test("LANG_ID_ONNX_FILES contains expected files", () => {

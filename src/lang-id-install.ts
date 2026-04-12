@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, rmSync } from "fs";
 import { log } from "./log";
 import { streamResponseToFile } from "./progress";
 
-export const LANG_ID_HF_REPO = "drakulavich/parakeet-lang-id-ecapa";
+export const LANG_ID_HF_REPO = "drakulavich/SpeechBrain-coreml";
 
 export const LANG_ID_ONNX_FILES = ["lang-id-ecapa.onnx", "labels.json"];
 

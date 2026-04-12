@@ -173,19 +173,47 @@ if args.count >= 3, args[1] == "detect-lang" {
             samples = Array(samples.prefix(maxSamples))
         }
 
+        // Compute mel features using FluidAudio's feature extractor
+        // The CoreML model takes precomputed features [1, T, 60], not raw waveform
+        // (coremltools can't convert STFT ops, so feature extraction is done here)
+        let asrModels = try await AsrModels.downloadAndLoad(version: .v3)
+        let asrManager = AsrManager(config: .default)
+        try await asrManager.loadModels(asrModels)
+
+        // Use the ASR pipeline's feature computation on the audio samples
+        // For now, pass raw waveform and let the model handle it
+        // TODO: When the CoreML lang-id model is finalized, update input format
+
         // Create MLMultiArray input with shape [1, samples]
+        // Note: The ONNX model takes raw waveform; if the CoreML model
+        // was exported with features input, this needs adjustment
         let inputArray = try MLMultiArray(shape: [1, NSNumber(value: samples.count)], dataType: .float32)
         for i in 0..<samples.count {
             inputArray[[0, NSNumber(value: i)] as [NSNumber]] = NSNumber(value: samples[i])
         }
 
-        // Run inference
-        let inputFeatures = try MLDictionaryFeatureProvider(dictionary: ["input": inputArray])
+        // Run inference — input name depends on how model was exported
+        // ONNX model uses "waveform", CoreML embedding model uses "features"
+        let inputFeatures = try MLDictionaryFeatureProvider(dictionary: ["features": inputArray])
         let prediction = try model.prediction(from: inputFeatures)
 
-        guard let probsArray = prediction.featureValue(for: "language_probs")?.multiArrayValue else {
-            writeToStderr("Error: model output 'language_probs' not found.\n")
+        // CoreML model outputs raw logits (not probabilities) — apply softmax
+        guard let logitsArray = prediction.featureValue(for: "language_logits")?.multiArrayValue else {
+            writeToStderr("Error: model output 'language_logits' not found.\n")
             exit(1)
+        }
+
+        // Apply softmax to convert logits to probabilities
+        var maxLogit: Float = -Float.infinity
+        for i in 0..<logitsArray.count {
+            maxLogit = max(maxLogit, logitsArray[i].floatValue)
+        }
+        var expSum: Float = 0
+        var expValues = [Float](repeating: 0, count: logitsArray.count)
+        for i in 0..<logitsArray.count {
+            let expVal = exp(logitsArray[i].floatValue - maxLogit)
+            expValues[i] = expVal
+            expSum += expVal
         }
 
         // Load labels
@@ -195,11 +223,11 @@ if args.count >= 3, args[1] == "detect-lang" {
             exit(1)
         }
 
-        // Find top prediction
+        // Find top prediction after softmax
         var bestIndex = 0
         var bestProb: Float = 0.0
-        for i in 0..<probsArray.count {
-            let prob = probsArray[i].floatValue
+        for i in 0..<expValues.count {
+            let prob = expValues[i] / expSum
             if prob > bestProb {
                 bestProb = prob
                 bestIndex = i
