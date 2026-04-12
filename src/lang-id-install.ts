@@ -1,6 +1,6 @@
 import { join } from "path";
 import { homedir } from "os";
-import { existsSync, mkdirSync } from "fs";
+import { existsSync, mkdirSync, rmSync } from "fs";
 import { log } from "./log";
 import { streamResponseToFile } from "./progress";
 
@@ -28,6 +28,31 @@ export function isLangIdCoreMLCached(dir?: string): boolean {
   return LANG_ID_COREML_FILES.every((file) => existsSync(join(resolvedDir, file)));
 }
 
+async function downloadSingleFile(url: string, dest: string, displayName: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(url, { redirect: "follow" });
+  } catch (e) {
+    throw new Error(
+      `Failed to fetch ${displayName}: ${e instanceof Error ? e.message : e}\n  Fix: Check your network connection and try again`,
+    );
+  }
+
+  if (!res.ok) {
+    throw new Error(
+      `Failed to download ${displayName}: HTTP ${res.status}\n  Fix: Check your network connection or try again with --no-cache`,
+    );
+  }
+
+  const bytes = await streamResponseToFile(res, dest, displayName);
+
+  if (bytes === 0) {
+    throw new Error(
+      `Downloaded 0 bytes for ${displayName}\n  Fix: Try again — the server may be temporarily unavailable`,
+    );
+  }
+}
+
 export async function downloadLangIdOnnx(noCache = false, modelDir?: string): Promise<string> {
   const dir = modelDir ?? getLangIdOnnxDir();
 
@@ -39,33 +64,10 @@ export async function downloadLangIdOnnx(noCache = false, modelDir?: string): Pr
   mkdirSync(dir, { recursive: true });
 
   for (const file of LANG_ID_ONNX_FILES) {
-    const url = `https://huggingface.co/${LANG_ID_HF_REPO}/resolve/main/${file}`;
     const dest = join(dir, file);
-
     if (!noCache && existsSync(dest)) continue;
-
-    let res: Response;
-    try {
-      res = await fetch(url, { redirect: "follow" });
-    } catch (e) {
-      throw new Error(
-        `Failed to fetch ${file}: ${e instanceof Error ? e.message : e}\n  Fix: Check your network connection and try again`,
-      );
-    }
-
-    if (!res.ok) {
-      throw new Error(
-        `Failed to download ${file}: HTTP ${res.status}\n  Fix: Check your network connection or try again with --no-cache`,
-      );
-    }
-
-    const bytes = await streamResponseToFile(res, dest, file);
-
-    if (bytes === 0) {
-      throw new Error(
-        `Downloaded 0 bytes for ${file}\n  Fix: Try again — the server may be temporarily unavailable`,
-      );
-    }
+    const url = `https://huggingface.co/${LANG_ID_HF_REPO}/resolve/main/${file}`;
+    await downloadSingleFile(url, dest, file);
   }
 
   log.success("Lang-ID ONNX model downloaded successfully.");
@@ -82,65 +84,20 @@ export async function downloadLangIdCoreML(noCache = false, modelDir?: string): 
 
   mkdirSync(dir, { recursive: true });
 
-  // Download labels.json directly
-  const labelsFile = "labels.json";
-  const labelsDest = join(dir, labelsFile);
-
+  // Download labels.json
+  const labelsDest = join(dir, "labels.json");
   if (noCache || !existsSync(labelsDest)) {
-    const labelsUrl = `https://huggingface.co/${LANG_ID_HF_REPO}/resolve/main/${labelsFile}`;
-
-    let labelsRes: Response;
-    try {
-      labelsRes = await fetch(labelsUrl, { redirect: "follow" });
-    } catch (e) {
-      throw new Error(
-        `Failed to fetch ${labelsFile}: ${e instanceof Error ? e.message : e}\n  Fix: Check your network connection and try again`,
-      );
-    }
-
-    if (!labelsRes.ok) {
-      throw new Error(
-        `Failed to download ${labelsFile}: HTTP ${labelsRes.status}\n  Fix: Check your network connection or try again with --no-cache`,
-      );
-    }
-
-    const labelsBytes = await streamResponseToFile(labelsRes, labelsDest, labelsFile);
-
-    if (labelsBytes === 0) {
-      throw new Error(
-        `Downloaded 0 bytes for ${labelsFile}\n  Fix: Try again — the server may be temporarily unavailable`,
-      );
-    }
+    const url = `https://huggingface.co/${LANG_ID_HF_REPO}/resolve/main/labels.json`;
+    await downloadSingleFile(url, labelsDest, "labels.json");
   }
 
   // Download mlpackage as tar.gz and extract
   const archiveName = "lang-id-ecapa.mlpackage.tar.gz";
   const archiveDest = join(dir, archiveName);
-  const archiveUrl = `https://huggingface.co/${LANG_ID_HF_REPO}/resolve/main/${archiveName}`;
 
   if (noCache || !existsSync(join(dir, "lang-id-ecapa.mlpackage"))) {
-    let archiveRes: Response;
-    try {
-      archiveRes = await fetch(archiveUrl, { redirect: "follow" });
-    } catch (e) {
-      throw new Error(
-        `Failed to fetch ${archiveName}: ${e instanceof Error ? e.message : e}\n  Fix: Check your network connection and try again`,
-      );
-    }
-
-    if (!archiveRes.ok) {
-      throw new Error(
-        `Failed to download ${archiveName}: HTTP ${archiveRes.status}\n  Fix: Check your network connection or try again with --no-cache`,
-      );
-    }
-
-    const archiveBytes = await streamResponseToFile(archiveRes, archiveDest, archiveName);
-
-    if (archiveBytes === 0) {
-      throw new Error(
-        `Downloaded 0 bytes for ${archiveName}\n  Fix: Try again — the server may be temporarily unavailable`,
-      );
-    }
+    const url = `https://huggingface.co/${LANG_ID_HF_REPO}/resolve/main/${archiveName}`;
+    await downloadSingleFile(url, archiveDest, archiveName);
 
     const extract = Bun.spawnSync(["tar", "xzf", archiveDest, "-C", dir], {
       stdout: "pipe",
@@ -153,9 +110,7 @@ export async function downloadLangIdCoreML(noCache = false, modelDir?: string): 
       );
     }
 
-    // Clean up the archive after extraction
-    const fs = await import("fs");
-    fs.rmSync(archiveDest, { force: true });
+    rmSync(archiveDest, { force: true });
   }
 
   log.success("Lang-ID CoreML model downloaded successfully.");
