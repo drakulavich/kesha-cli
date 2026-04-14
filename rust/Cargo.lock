@@ -674,6 +674,7 @@ name = "parakeet-engine"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "audioadapter-buffers",
  "clap",
  "dirs",
  "fluidaudio-rs",

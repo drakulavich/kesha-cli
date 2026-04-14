@@ -29,6 +29,7 @@ ndarray = { version = "0.17", optional = true }
 
 # CoreML backend (macOS)
 fluidaudio-rs = { version = "0.1", optional = true }
+audioadapter-buffers = "3.0.0"
 
 [profile.release]
 lto = true
