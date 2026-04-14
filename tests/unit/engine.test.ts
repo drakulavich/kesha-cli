@@ -2,9 +2,9 @@ import { describe, test, expect } from "bun:test";
 import { parseLangResult, getEngineBinPath } from "../../src/engine";
 
 describe("engine", () => {
-  test("getEngineBinPath returns path under .cache/kesha", () => {
+  test("getEngineBinPath returns path under .cache kesha", () => {
     const path = getEngineBinPath();
-    expect(path).toContain(".cache/kesha");
+    expect(path).toMatch(/\.cache[/\\]kesha/);
     expect(path).toContain("kesha-engine");
   });
 
