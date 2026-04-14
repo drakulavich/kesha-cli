@@ -4,7 +4,9 @@ use anyhow::Result;
 mod audio;
 mod backend;
 mod capabilities;
+mod lang_id;
 mod models;
+mod text_lang;
 mod transcribe;
 
 #[derive(Parser)]
@@ -58,10 +60,12 @@ fn main() -> Result<()> {
             println!("{}", text);
         }
         Some(Commands::DetectLang { audio_path }) => {
-            eprintln!("TODO: detect-lang {}", audio_path);
+            let result = lang_id::detect_audio_language(&audio_path)?;
+            println!("{}", serde_json::to_string(&result)?);
         }
         Some(Commands::DetectTextLang { text }) => {
-            eprintln!("TODO: detect-text-lang {}", text);
+            let result = text_lang::detect_text_language(&text)?;
+            println!("{}", serde_json::to_string(&result)?);
         }
         Some(Commands::Install { no_cache }) => {
             models::install(no_cache)?;
