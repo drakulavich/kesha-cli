@@ -5,14 +5,24 @@ use rubato::{
     WindowFunction, calculate_cutoff,
 };
 use symphonia::core::audio::SampleBuffer;
-use symphonia::core::codecs::{CODEC_TYPE_NULL, DecoderOptions};
+use symphonia::core::codecs::{CodecRegistry, CODEC_TYPE_NULL, DecoderOptions};
 use symphonia::core::errors::Error as SymphoniaError;
 use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
-use symphonia::core::probe::Hint;
+use symphonia::core::probe::{Hint, Probe};
 
 const TARGET_SAMPLE_RATE: u32 = 16000;
+
+/// Build a codec registry that includes the default codecs plus libopus.
+fn get_codec_registry() -> CodecRegistry {
+    let mut registry = CodecRegistry::new();
+    // Register all default symphonia codecs
+    symphonia::default::register_enabled_codecs(&mut registry);
+    // Register libopus adapter for Opus decoding
+    registry.register_all::<symphonia_adapter_libopus::OpusDecoder>();
+    registry
+}
 
 /// Decode audio file to raw f32 mono samples at the native sample rate.
 /// Returns (samples, sample_rate, channels).
@@ -22,13 +32,15 @@ fn decode_audio(path: &str) -> Result<(Vec<f32>, u32, usize)> {
 
     let mss = MediaSourceStream::new(Box::new(src), Default::default());
 
-    // Give symphonia a hint via file extension
     let mut hint = Hint::new();
     if let Some(ext) = std::path::Path::new(path).extension().and_then(|e| e.to_str()) {
         hint.with_extension(ext);
     }
 
-    let probed = symphonia::default::get_probe()
+    let mut probe = Probe::default();
+    symphonia::default::register_enabled_formats(&mut probe);
+
+    let probed = probe
         .format(
             &hint,
             mss,
@@ -58,7 +70,8 @@ fn decode_audio(path: &str) -> Result<(Vec<f32>, u32, usize)> {
 
     let track_id = track.id;
     let dec_opts = DecoderOptions::default();
-    let mut decoder = symphonia::default::get_codecs()
+    let codec_registry = get_codec_registry();
+    let mut decoder = codec_registry
         .make(&track.codec_params, &dec_opts)
         .with_context(|| format!("unsupported codec in: {path}"))?;
 

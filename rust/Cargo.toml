@@ -17,6 +17,7 @@ anyhow = "1"
 
 # Audio decoding
 symphonia = { version = "0.5", features = ["mp3", "ogg", "flac", "aac", "pcm", "wav"] }
+symphonia-adapter-libopus = "0.2"
 rubato = "2"
 
 # HTTP downloads
