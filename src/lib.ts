@@ -5,6 +5,9 @@ import { downloadEngine } from "./engine-install";
 export type { TranscribeOptions };
 export { downloadEngine as downloadModel };
 
+/** @deprecated Use `downloadModel` instead. */
+export const downloadCoreML = downloadEngine;
+
 export async function transcribe(
   audioPath: string,
   options: TranscribeOptions = {},
