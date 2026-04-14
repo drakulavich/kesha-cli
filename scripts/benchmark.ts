@@ -26,12 +26,13 @@ interface FileResult {
   openaiWhisper: EngineResult;
   fasterWhisper: EngineResult;
   kesha: EngineResult;
+  keshaCoreml?: EngineResult;
 }
 
 interface GroupResult {
   name: string;
   results: FileResult[];
-  totals: { openaiWhisper: number; fasterWhisper: number; kesha: number };
+  totals: { openaiWhisper: number; fasterWhisper: number; kesha: number; keshaCoreml?: number };
 }
 
 interface BenchmarkReport {
@@ -201,6 +202,40 @@ function runKesha(files: string[]): EngineResult[] {
   return results;
 }
 
+const COREML_BIN = "/tmp/coreml-bench/parakeet-coreml";
+
+function isCoremlAvailable(): boolean {
+  return process.platform === "darwin" && process.arch === "arm64" && existsSync(COREML_BIN);
+}
+
+function runKeshaCoreml(files: string[]): EngineResult[] {
+  console.error(`Running Kesha CoreML on ${files.length} files...`);
+  const results: EngineResult[] = [];
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const name = basename(file).slice(0, 30);
+    process.stderr.write(`  [${i + 1}/${files.length}] ${name}...`);
+
+    const start = performance.now();
+    const proc = Bun.spawnSync([COREML_BIN, file], { stdout: "pipe", stderr: "pipe" });
+    const elapsed = (performance.now() - start) / 1000;
+
+    if (proc.exitCode !== 0) {
+      console.error(" FAILED");
+    } else {
+      console.error(` ${elapsed.toFixed(1)}s`);
+    }
+
+    results.push({
+      time: Math.round(elapsed * 10) / 10,
+      text: proc.stdout.toString().trim(),
+    });
+  }
+
+  return results;
+}
+
 // --- Report rendering ---
 
 function round1(n: number): number {
@@ -211,30 +246,36 @@ function sumTimes(results: EngineResult[]): number {
   return round1(results.reduce((sum, r) => sum + r.time, 0));
 }
 
-function renderGroup(group: GroupResult): string[] {
+function renderGroup(group: GroupResult, hasCoreml: boolean): string[] {
+  const coremlHeader = hasCoreml ? " Kesha CoreML |" : "";
+  const coremlSep = hasCoreml ? "---|" : "";
   const lines: string[] = [
     `### ${group.name} (${group.results.length} files)`,
     "",
-    "| # | File | openai-whisper | faster-whisper | Kesha | Transcript (Kesha) |",
-    "|---|---|---|---|---|---|",
+    `| # | File | openai-whisper | faster-whisper | Kesha ONNX |${coremlHeader} Transcript (Kesha) |`,
+    `|---|---|---|---|---|${coremlSep}---|`,
   ];
 
   for (let i = 0; i < group.results.length; i++) {
     const r = group.results[i];
     const transcript = r.kesha.text.slice(0, 60) + (r.kesha.text.length > 60 ? "..." : "");
+    const coremlCol = hasCoreml && r.keshaCoreml ? ` ${r.keshaCoreml.time}s |` : "";
     lines.push(
-      `| ${i + 1} | ${r.file} | ${r.openaiWhisper.time}s | ${r.fasterWhisper.time}s | ${r.kesha.time}s | ${transcript} |`,
+      `| ${i + 1} | ${r.file} | ${r.openaiWhisper.time}s | ${r.fasterWhisper.time}s | ${r.kesha.time}s |${coremlCol} ${transcript} |`,
     );
   }
 
   const t = group.totals;
-  lines.push(`| **Total** | | **${t.openaiWhisper}s** | **${t.fasterWhisper}s** | **${t.kesha}s** | |`);
+  const coremlTotal = hasCoreml && t.keshaCoreml != null ? ` **${t.keshaCoreml}s** |` : "";
+  lines.push(`| **Total** | | **${t.openaiWhisper}s** | **${t.fasterWhisper}s** | **${t.kesha}s** |${coremlTotal} |`);
   lines.push("");
 
-  const speedVsWhisper = t.kesha > 0 ? round1(t.openaiWhisper / t.kesha) : 0;
-  const speedVsFaster = t.kesha > 0 ? round1(t.fasterWhisper / t.kesha) : 0;
+  const bestTime = hasCoreml && t.keshaCoreml != null ? t.keshaCoreml : t.kesha;
+  const bestLabel = hasCoreml && t.keshaCoreml != null ? "Kesha CoreML" : "Kesha ONNX";
+  const speedVsWhisper = bestTime > 0 ? round1(t.openaiWhisper / bestTime) : 0;
+  const speedVsFaster = bestTime > 0 ? round1(t.fasterWhisper / bestTime) : 0;
   lines.push(
-    `**Speedup:** Kesha is ~${speedVsWhisper}x faster than openai-whisper, ~${speedVsFaster}x faster than faster-whisper`,
+    `**Speedup:** ${bestLabel} is ~${speedVsWhisper}x faster than openai-whisper, ~${speedVsFaster}x faster than faster-whisper`,
   );
 
   return lines;
@@ -253,8 +294,9 @@ function renderMarkdown(report: BenchmarkReport): string {
     "",
   ];
 
+  const hasCoreml = report.groups.some((g) => g.totals.keshaCoreml != null);
   for (const group of report.groups) {
-    lines.push(...renderGroup(group));
+    lines.push(...renderGroup(group, hasCoreml));
     lines.push("");
   }
 
@@ -286,12 +328,14 @@ async function main(): Promise<void> {
     const owResults = runOpenAIWhisper(python, files);
     const fwResults = runFasterWhisper(python, files);
     const kResults = runKesha(files);
+    const coremlResults = isCoremlAvailable() ? runKeshaCoreml(files) : null;
 
     const results: FileResult[] = files.map((f, i) => ({
       file: basename(f),
       openaiWhisper: owResults[i],
       fasterWhisper: fwResults[i],
       kesha: kResults[i],
+      ...(coremlResults ? { keshaCoreml: coremlResults[i] } : {}),
     }));
 
     groups.push({
@@ -301,6 +345,7 @@ async function main(): Promise<void> {
         openaiWhisper: sumTimes(owResults),
         fasterWhisper: sumTimes(fwResults),
         kesha: sumTimes(kResults),
+        ...(coremlResults ? { keshaCoreml: sumTimes(coremlResults) } : {}),
       },
     });
   }
