@@ -7,9 +7,15 @@ use ort::value::Value;
 
 use super::TranscribeBackend;
 
+const DECODER_LAYERS: usize = 2;
+const DECODER_HIDDEN: usize = 640;
+const MAX_TOKENS_PER_STEP: usize = 10;
+const DEFAULT_BEAM_WIDTH: usize = 4;
+
 pub struct OnnxBackend {
     preprocessor: Session,
     encoder: Session,
+    decoder: Session,
     vocab: Vec<String>,
     blank_id: usize,
 }
@@ -28,15 +34,20 @@ impl OnnxBackend {
             .commit_from_file(model_path.join("encoder-model.onnx"))
             .context("Failed to load encoder-model.onnx — run `parakeet-engine install` first")?;
 
+        let decoder = Session::builder()
+            .context("Failed to create decoder session builder")?
+            .commit_from_file(model_path.join("decoder_joint-model.onnx"))
+            .context("Failed to load decoder_joint-model.onnx — run `parakeet-engine install` first")?;
+
         let vocab = load_vocab(model_path.join("vocab.txt"))
             .context("Failed to load vocab.txt — run `parakeet-engine install` first")?;
 
-        // Blank token is the last entry in the vocab
         let blank_id = vocab.len() - 1;
 
         Ok(Self {
             preprocessor,
             encoder,
+            decoder,
             vocab,
             blank_id,
         })
@@ -119,62 +130,204 @@ impl OnnxBackend {
         Ok((logits_data, logits_shape, enc_lens))
     }
 
-    /// Greedy CTC-style decoding on encoder logits.
-    fn greedy_decode(
-        &self,
-        logits_data: &[f32],
-        logits_shape: &[usize],
-        encoded_lengths: &[usize],
-    ) -> Result<String> {
-        // logits_shape is [1, D, T']
-        let d = logits_shape[1]; // vocab dimension
-        let t_prime = logits_shape[2]; // time steps
-        let actual_len = encoded_lengths[0].min(t_prime);
+    /// Run the decoder joint model for one step.
+    /// encoder_frame: [D] — single frame from encoder output
+    /// target: last emitted token ID
+    /// state1, state2: RNN hidden states [DECODER_LAYERS * DECODER_HIDDEN]
+    /// Returns: (output logits, new_state1, new_state2)
+    fn decode_step(
+        &mut self,
+        encoder_frame: &[f32],
+        target: i32,
+        state1: &[f32],
+        state2: &[f32],
+    ) -> Result<(Vec<f32>, Vec<f32>, Vec<f32>)> {
+        let d = encoder_frame.len();
 
-        let mut token_ids: Vec<usize> = Vec::new();
-        let mut prev_id: Option<usize> = None;
+        // encoder_outputs: [1, D, 1]
+        let enc_arr = ndarray::Array3::<f32>::from_shape_vec(
+            (1, d, 1), encoder_frame.to_vec()
+        )?;
+        let enc_val = Value::from_array(enc_arr)?;
 
-        for t in 0..actual_len {
-            // Find argmax over D dimension for frame t
-            // logits layout: [1, D, T'] — so element [0, d, t] = d * t_prime + t
-            let mut best_id = 0;
-            let mut best_val = f32::NEG_INFINITY;
-            for d_idx in 0..d {
-                let val = logits_data[d_idx * t_prime + t];
-                if val > best_val {
-                    best_val = val;
-                    best_id = d_idx;
+        // targets: [1, 1]
+        let targets_arr = ndarray::Array2::<i32>::from_shape_vec(
+            (1, 1), vec![target]
+        )?;
+        let targets_val = Value::from_array(targets_arr)?;
+
+        // target_length: [1]
+        let target_len_arr = Array1::<i32>::from_vec(vec![1]);
+        let target_len_val = Value::from_array(target_len_arr)?;
+
+        // input_states_1: [DECODER_LAYERS, 1, DECODER_HIDDEN]
+        let state1_arr = ndarray::Array3::<f32>::from_shape_vec(
+            (DECODER_LAYERS, 1, DECODER_HIDDEN), state1.to_vec()
+        )?;
+        let state1_val = Value::from_array(state1_arr)?;
+
+        // input_states_2: [DECODER_LAYERS, 1, DECODER_HIDDEN]
+        let state2_arr = ndarray::Array3::<f32>::from_shape_vec(
+            (DECODER_LAYERS, 1, DECODER_HIDDEN), state2.to_vec()
+        )?;
+        let state2_val = Value::from_array(state2_arr)?;
+
+        let outputs = self.decoder.run(
+            ort::inputs![
+                "encoder_outputs" => enc_val,
+                "targets" => targets_val,
+                "target_length" => target_len_val,
+                "input_states_1" => state1_val,
+                "input_states_2" => state2_val,
+            ],
+        ).context("Decoder inference failed")?;
+
+        // Decoder outputs may be in different order — find by trying types
+        // Expected: outputs (f32), output_states_1 (f32), output_states_2 (f32)
+        // But some models have different ordering or extra outputs
+        let mut output_data: Option<Vec<f32>> = None;
+        let mut new_s1: Option<Vec<f32>> = None;
+        let mut new_s2: Option<Vec<f32>> = None;
+
+        for (_name, out) in outputs.iter() {
+            if let Ok((shape, data)) = out.try_extract_tensor::<f32>() {
+                let shape_vec: Vec<usize> = shape.iter().map(|&x| x as usize).collect();
+                let data_vec: Vec<f32> = data.to_vec();
+
+                if shape_vec.len() == 2 && output_data.is_none() {
+                    output_data = Some(data_vec);
+                } else if shape_vec.len() == 3 && shape_vec[0] == DECODER_LAYERS {
+                    if new_s1.is_none() {
+                        new_s1 = Some(data_vec);
+                    } else if new_s2.is_none() {
+                        new_s2 = Some(data_vec);
+                    }
+                } else if output_data.is_none() {
+                    output_data = Some(data_vec);
+                }
+            }
+        }
+
+        let output_data = output_data.context("No decoder output tensor found")?;
+        let new_state1 = new_s1.context("No output_states_1 tensor found")?;
+        let new_state2 = new_s2.context("No output_states_2 tensor found")?;
+
+        Ok((output_data.to_vec(), new_state1.to_vec(), new_state2.to_vec()))
+    }
+
+    /// RNN-T TDT beam search decoder.
+    /// encoder_data: raw encoder output [1, D, T'] stored as flat [D*T'] in row-major
+    /// encoder_dim: D (feature dimension)
+    /// encoder_length: T' (number of frames)
+    fn beam_decode(
+        &mut self,
+        encoder_data: &[f32],
+        encoder_dim: usize,
+        encoder_length: usize,
+    ) -> Result<Vec<usize>> {
+        if encoder_length == 0 {
+            return Ok(vec![]);
+        }
+
+        let state_size = DECODER_LAYERS * DECODER_HIDDEN;
+        let vocab_size = self.vocab.len();
+
+        struct Beam {
+            tokens: Vec<usize>,
+            score: f32,
+            last_token: i32,
+            state1: Vec<f32>,
+            state2: Vec<f32>,
+            t: usize,
+        }
+
+        let mut beams = vec![Beam {
+            tokens: vec![],
+            score: 0.0,
+            last_token: self.blank_id as i32,
+            state1: vec![0.0; state_size],
+            state2: vec![0.0; state_size],
+            t: 0,
+        }];
+
+        let max_steps = encoder_length * MAX_TOKENS_PER_STEP;
+
+        for _step in 0..max_steps {
+            let active: Vec<usize> = beams.iter().enumerate()
+                .filter(|(_, b)| b.t < encoder_length)
+                .map(|(i, _)| i)
+                .collect();
+
+            if active.is_empty() {
+                break;
+            }
+
+            let mut candidates: Vec<Beam> = Vec::new();
+
+            for &beam_idx in &active {
+                let beam = &beams[beam_idx];
+
+                // Extract encoder frame at position beam.t
+                // encoder_data layout: [1, D, T'] row-major → element [0, d, t] = d * T' + t
+                let frame: Vec<f32> = (0..encoder_dim)
+                    .map(|d| encoder_data[d * encoder_length + beam.t])
+                    .collect();
+
+                let (output, new_state1, new_state2) = self.decode_step(
+                    &frame,
+                    beam.last_token,
+                    &beam.state1,
+                    &beam.state2,
+                )?;
+
+                let token_logits = &output[..vocab_size];
+                let duration_logits = &output[vocab_size..];
+
+                // Duration: argmax of duration logits
+                let duration = argmax(duration_logits);
+
+                // Blank option: advance one frame, keep same tokens
+                candidates.push(Beam {
+                    tokens: beam.tokens.clone(),
+                    score: beam.score + token_logits[self.blank_id],
+                    last_token: beam.last_token,
+                    state1: new_state1.clone(),
+                    state2: new_state2.clone(),
+                    t: beam.t + 1,
+                });
+
+                // Top-K non-blank token options
+                let top_k = top_k_indices(token_logits, DEFAULT_BEAM_WIDTH, self.blank_id);
+                for token_id in top_k {
+                    candidates.push(Beam {
+                        tokens: {
+                            let mut t = beam.tokens.clone();
+                            t.push(token_id);
+                            t
+                        },
+                        score: beam.score + token_logits[token_id],
+                        last_token: token_id as i32,
+                        state1: new_state1.clone(),
+                        state2: new_state2.clone(),
+                        t: if duration > 0 { beam.t + duration } else { beam.t },
+                    });
                 }
             }
 
-            // Skip blank tokens
-            if best_id == self.blank_id {
-                prev_id = None;
-                continue;
-            }
-
-            // Collapse consecutive duplicates
-            if Some(best_id) == prev_id {
-                continue;
-            }
-
-            token_ids.push(best_id);
-            prev_id = Some(best_id);
+            candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+            beams = candidates.into_iter().take(DEFAULT_BEAM_WIDTH).collect();
         }
 
-        // Map token IDs to strings
-        let mut text = String::new();
-        for id in &token_ids {
-            if *id < self.vocab.len() {
-                text.push_str(&self.vocab[*id]);
-            }
-        }
+        Ok(beams.into_iter().next().map(|b| b.tokens).unwrap_or_default())
+    }
 
-        // Replace ▁ (U+2581) with space and trim
-        let text = text.replace('\u{2581}', " ");
-        let text = text.trim().to_string();
-
-        Ok(text)
+    /// Detokenize: map token IDs to strings, replace ▁ with space, trim.
+    fn detokenize(&self, token_ids: &[usize]) -> String {
+        let text: String = token_ids.iter()
+            .filter_map(|&id| self.vocab.get(id))
+            .map(|t| t.replace('\u{2581}', " "))
+            .collect();
+        text.trim().to_string()
     }
 }
 
@@ -191,10 +344,37 @@ impl TranscribeBackend for OnnxBackend {
         let (features_data, features_lens) = self.preprocess(audio_samples)?;
         let (logits_data, logits_shape, encoded_lengths) =
             self.encode(&features_data, &features_lens)?;
-        let text = self.greedy_decode(&logits_data, &logits_shape, &encoded_lengths)?;
+
+        // logits_shape: [1, D, T']
+        let encoder_dim = logits_shape[1];
+        let encoder_length = encoded_lengths[0].min(logits_shape[2]);
+
+        let token_ids = self.beam_decode(&logits_data, encoder_dim, encoder_length)?;
+        let text = self.detokenize(&token_ids);
 
         Ok(text)
     }
+}
+
+fn argmax(arr: &[f32]) -> usize {
+    let mut best = 0;
+    let mut best_val = f32::NEG_INFINITY;
+    for (i, &v) in arr.iter().enumerate() {
+        if v > best_val {
+            best_val = v;
+            best = i;
+        }
+    }
+    best
+}
+
+fn top_k_indices(arr: &[f32], k: usize, exclude: usize) -> Vec<usize> {
+    let mut indexed: Vec<(f32, usize)> = arr.iter().enumerate()
+        .filter(|&(i, _)| i != exclude)
+        .map(|(i, &v)| (v, i))
+        .collect();
+    indexed.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    indexed.iter().take(k).map(|&(_, i)| i).collect()
 }
 
 /// Load vocab.txt: each line has "token id" format, or just one token per line.
