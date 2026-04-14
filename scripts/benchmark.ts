@@ -1,148 +1,193 @@
 #!/usr/bin/env bun
 /**
- * Benchmark: faster-whisper vs parakeet-cli
- * Cross-platform: CoreML on macOS arm64, ONNX elsewhere.
- * Outputs markdown to stdout, writes benchmark-summary.json.
+ * Benchmark: openai-whisper vs faster-whisper vs Kesha Voice Kit
+ * Runs all three engines on Russian + English fixtures.
+ * Output: markdown to stdout, JSON to benchmark-results.json.
  */
 
 import { Glob } from "bun";
-import { resolve } from "path";
-import {
-  renderBenchmarkReport,
-  type BenchmarkResult,
-  type BenchmarkSystemInfo,
-} from "../src/benchmark-report";
+import { resolve, basename } from "path";
+import { existsSync, mkdirSync } from "fs";
+import { homedir } from "os";
 
-const repoDir = resolve(import.meta.dir, "..");
-const fixturesDir = resolve(repoDir, "fixtures/benchmark");
 const CLI = "kesha";
-const whisperPython = `
-import sys, time, json, tempfile, subprocess, os
+const VENV_DIR = resolve(homedir(), ".cache", "kesha", "benchmark-venv");
+const RESULTS_FILE = "benchmark-results.json";
 
-venv = tempfile.mkdtemp()
-subprocess.run([sys.executable, "-m", "venv", venv], check=True, capture_output=True)
-pip = os.path.join(venv, "bin", "pip")
-subprocess.run([pip, "install", "-q", "faster-whisper"], check=True, capture_output=True)
+// --- Types ---
 
-# Add venv site-packages to sys.path (Unix layout only)
-site_packages = os.path.join(venv, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages")
-sys.path.insert(0, site_packages)
+interface EngineResult {
+  time: number;
+  text: string;
+}
 
-from faster_whisper import WhisperModel
-model = WhisperModel("medium", device="cpu", compute_type="int8")
+interface FileResult {
+  file: string;
+  openaiWhisper: EngineResult;
+  fasterWhisper: EngineResult;
+  kesha: EngineResult;
+}
 
+interface GroupResult {
+  name: string;
+  results: FileResult[];
+  totals: { openaiWhisper: number; fasterWhisper: number; kesha: number };
+}
+
+interface BenchmarkReport {
+  date: string;
+  platform: { os: string; arch: string; chip: string; ram: string };
+  keshaBackend: string;
+  whisperModel: string;
+  groups: GroupResult[];
+}
+
+// --- System detection ---
+
+function getSystemInfo(): BenchmarkReport["platform"] {
+  const os = process.platform === "darwin" ? "Darwin" : process.platform === "linux" ? "Linux" : "Windows";
+  const arch = process.arch;
+  let chip = "Unknown";
+  let ram = "Unknown";
+
+  if (os === "Darwin") {
+    chip = Bun.spawnSync(["sysctl", "-n", "machdep.cpu.brand_string"], { stdout: "pipe" }).stdout.toString().trim() || "Unknown";
+    const profiler = Bun.spawnSync(["system_profiler", "SPHardwareDataType"], { stdout: "pipe" }).stdout.toString();
+    ram = profiler.match(/Memory:\s+(.+)/)?.[1] ?? "Unknown";
+  } else if (os === "Linux") {
+    const lscpu = Bun.spawnSync(["lscpu"], { stdout: "pipe" }).stdout.toString();
+    chip = lscpu.match(/Model name:\s+(.*)/)?.[1]?.trim() ?? "Unknown";
+    const free = Bun.spawnSync(["free", "-h"], { stdout: "pipe" }).stdout.toString();
+    ram = free.match(/Mem:\s+(\S+)/)?.[1] ?? "Unknown";
+  }
+
+  return { os, arch, chip, ram };
+}
+
+function getKeshaBackend(): string {
+  const proc = Bun.spawnSync([CLI, "status"], { stdout: "pipe", stderr: "pipe" });
+  const output = proc.stdout.toString();
+  if (output.includes("coreml")) return "coreml";
+  if (output.includes("onnx")) return "onnx";
+  return "unknown";
+}
+
+// --- Python venv management ---
+
+function ensureVenv(): string {
+  const python = resolve(VENV_DIR, "bin", "python3");
+  const pip = resolve(VENV_DIR, "bin", "pip");
+
+  if (existsSync(python)) {
+    // Check if packages are installed
+    const check = Bun.spawnSync([python, "-c", "import whisper; import faster_whisper"], {
+      stdout: "pipe", stderr: "pipe",
+    });
+    if (check.exitCode === 0) return python;
+  }
+
+  console.error("Setting up Python venv for Whisper benchmarks...");
+  mkdirSync(VENV_DIR, { recursive: true });
+
+  const venvProc = Bun.spawnSync(["python3", "-m", "venv", VENV_DIR], { stdout: "pipe", stderr: "pipe" });
+  if (venvProc.exitCode !== 0) {
+    throw new Error(`Failed to create venv: ${venvProc.stderr.toString()}`);
+  }
+
+  console.error("Installing openai-whisper...");
+  const whisperInstall = Bun.spawnSync([pip, "install", "-q", "openai-whisper"], { stdout: "pipe", stderr: "inherit" });
+  if (whisperInstall.exitCode !== 0) throw new Error("Failed to install openai-whisper");
+
+  console.error("Installing faster-whisper...");
+  const fasterInstall = Bun.spawnSync([pip, "install", "-q", "faster-whisper"], { stdout: "pipe", stderr: "inherit" });
+  if (fasterInstall.exitCode !== 0) throw new Error("Failed to install faster-whisper");
+
+  console.error("Venv ready.\n");
+  return python;
+}
+
+// --- Fixture scanning ---
+
+function scanFixtures(dir: string): string[] {
+  if (!existsSync(dir)) return [];
+  return [...new Glob("*.ogg").scanSync(dir)].sort().map((f) => resolve(dir, f));
+}
+
+// --- Engine runners ---
+
+function runOpenAIWhisper(python: string, files: string[]): EngineResult[] {
+  console.error(`Running openai-whisper (base) on ${files.length} files...`);
+
+  const script = `
+import sys, time, json, whisper
+
+model = whisper.load_model("base")
 results = []
 total = len(sys.argv[1:])
 for i, f in enumerate(sys.argv[1:], 1):
-    name = os.path.basename(f)[:30]
+    name = f.split("/")[-1][:30]
     print(f"  [{i}/{total}] {name}...", end="", flush=True, file=sys.stderr)
     start = time.time()
-    segments, info = model.transcribe(f, language="ru")
+    result = model.transcribe(f)
+    elapsed = time.time() - start
+    print(f" {elapsed:.1f}s", file=sys.stderr)
+    results.append({"time": round(elapsed, 1), "text": result["text"].strip()})
+
+print(json.dumps(results, ensure_ascii=False))
+`;
+
+  const proc = Bun.spawnSync([python, "-c", script, ...files], {
+    stdout: "pipe", stderr: "inherit",
+  });
+  if (proc.exitCode !== 0) throw new Error("openai-whisper benchmark failed");
+  return JSON.parse(proc.stdout.toString());
+}
+
+function runFasterWhisper(python: string, files: string[]): EngineResult[] {
+  console.error(`Running faster-whisper (base, int8) on ${files.length} files...`);
+
+  const script = `
+import sys, time, json
+from faster_whisper import WhisperModel
+
+model = WhisperModel("base", device="cpu", compute_type="int8")
+results = []
+total = len(sys.argv[1:])
+for i, f in enumerate(sys.argv[1:], 1):
+    name = f.split("/")[-1][:30]
+    print(f"  [{i}/{total}] {name}...", end="", flush=True, file=sys.stderr)
+    start = time.time()
+    segments, info = model.transcribe(f)
     text = " ".join(s.text.strip() for s in segments)
     elapsed = time.time() - start
     print(f" {elapsed:.1f}s", file=sys.stderr)
     results.append({"time": round(elapsed, 1), "text": text})
 
-import shutil
-shutil.rmtree(venv, ignore_errors=True)
 print(json.dumps(results, ensure_ascii=False))
 `;
 
-// --- System detection ---
-
-function getSystemInfo(): BenchmarkSystemInfo {
-  const os = process.platform === "darwin" ? "Darwin" : process.platform === "linux" ? "Linux" : "Windows";
-  const arch = process.arch;
-
-  let chip = "Unknown";
-  let ram = "Unknown";
-  let backend = "ONNX";
-
-  if (os === "Darwin") {
-    chip = Bun.spawnSync(["sysctl", "-n", "machdep.cpu.brand_string"], { stdout: "pipe" }).stdout.toString().trim() || "Unknown";
-    const profiler = Bun.spawnSync(["system_profiler", "SPHardwareDataType"], { stdout: "pipe" }).stdout.toString();
-    const ramMatch = profiler.match(/Memory:\s+(.+)/);
-    ram = ramMatch?.[1] ?? "Unknown";
-    backend = arch === "arm64" ? "CoreML" : "ONNX";
-  } else if (os === "Linux") {
-    const lscpu = Bun.spawnSync(["lscpu"], { stdout: "pipe" }).stdout.toString();
-    const chipMatch = lscpu.match(/Model name:\s+(.*)/);
-    chip = chipMatch?.[1]?.trim() ?? "Unknown";
-    const free = Bun.spawnSync(["free", "-h"], { stdout: "pipe" }).stdout.toString();
-    const ramMatch = free.match(/Mem:\s+(\S+)/);
-    ram = ramMatch?.[1] ?? "Unknown";
-  }
-
-  return { os, arch, chip, ram, backend };
-}
-
-function getBenchmarkFiles(): string[] {
-  const files = [...new Glob("*.ogg").scanSync(fixturesDir)]
-    .sort()
-    .map((file) => resolve(fixturesDir, file));
-
-  if (files.length === 0) {
-    throw new Error(`No .ogg files found in ${fixturesDir}`);
-  }
-
-  return files;
-}
-
-function getCliVersion(): string {
-  return Bun.spawnSync([CLI, "--version"], { stdout: "pipe" }).stdout.toString().trim() || "unknown";
-}
-
-async function ensureBackendInstalled(): Promise<void> {
-  const { isModelInstalled } = await import("../src/models");
-  if (!isModelInstalled()) {
-    throw new Error("No backend installed. Run: kesha install");
-  }
-}
-
-function runWhisperBenchmark(files: string[]): BenchmarkResult[] {
-  console.error(`Running faster-whisper benchmark (${files.length} files)...`);
-
-  const whisperProc = Bun.spawnSync(["python3", "-c", whisperPython, ...files], {
-    stdout: "pipe",
-    stderr: "inherit",
+  const proc = Bun.spawnSync([python, "-c", script, ...files], {
+    stdout: "pipe", stderr: "inherit",
   });
-  if (whisperProc.exitCode !== 0) {
-    throw new Error("faster-whisper benchmark failed");
-  }
-
-  return JSON.parse(whisperProc.stdout.toString()) as BenchmarkResult[];
+  if (proc.exitCode !== 0) throw new Error("faster-whisper benchmark failed");
+  return JSON.parse(proc.stdout.toString());
 }
 
-function verifyParakeetCli(audioFile: string): void {
-  console.error("Verifying parakeet transcription...");
-  const testProc = Bun.spawnSync([CLI, audioFile], { stdout: "pipe", stderr: "pipe" });
-  if (testProc.exitCode !== 0) {
-    const detail = testProc.stderr.toString().trim();
-    throw new Error(detail ? `Parakeet verification failed: ${detail}` : "Parakeet verification failed");
-  }
+function runKesha(files: string[]): EngineResult[] {
+  console.error(`Running Kesha on ${files.length} files...`);
+  const results: EngineResult[] = [];
 
-  console.error(`Verification OK: "${testProc.stdout.toString().trim().slice(0, 50)}..."`);
-}
-
-function runParakeetBenchmark(files: string[]): BenchmarkResult[] {
-  console.error(`Running parakeet benchmark (${files.length} files)...`);
-  verifyParakeetCli(files[0]);
-
-  const results: BenchmarkResult[] = [];
   for (let i = 0; i < files.length; i++) {
     const file = files[i];
-    const name = file.split("/").pop()!.slice(0, 30);
+    const name = basename(file).slice(0, 30);
     process.stderr.write(`  [${i + 1}/${files.length}] ${name}...`);
+
     const start = performance.now();
     const proc = Bun.spawnSync([CLI, file], { stdout: "pipe", stderr: "pipe" });
     const elapsed = (performance.now() - start) / 1000;
 
     if (proc.exitCode !== 0) {
       console.error(" FAILED");
-      const detail = proc.stderr.toString().trim();
-      if (detail) {
-        console.error(detail);
-      }
     } else {
       console.error(` ${elapsed.toFixed(1)}s`);
     }
@@ -156,36 +201,124 @@ function runParakeetBenchmark(files: string[]): BenchmarkResult[] {
   return results;
 }
 
-async function writeBenchmarkSummary(summary: object): Promise<void> {
-  const summaryPath = process.env.BENCHMARK_SUMMARY ?? "/tmp/benchmark-summary.json";
-  await Bun.write(summaryPath, JSON.stringify(summary));
+// --- Report rendering ---
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
 }
+
+function sumTimes(results: EngineResult[]): number {
+  return round1(results.reduce((sum, r) => sum + r.time, 0));
+}
+
+function renderGroup(group: GroupResult): string[] {
+  const lines: string[] = [
+    `### ${group.name} (${group.results.length} files)`,
+    "",
+    "| # | File | openai-whisper | faster-whisper | Kesha | Transcript (Kesha) |",
+    "|---|---|---|---|---|---|",
+  ];
+
+  for (let i = 0; i < group.results.length; i++) {
+    const r = group.results[i];
+    const transcript = r.kesha.text.slice(0, 60) + (r.kesha.text.length > 60 ? "..." : "");
+    lines.push(
+      `| ${i + 1} | ${r.file} | ${r.openaiWhisper.time}s | ${r.fasterWhisper.time}s | ${r.kesha.time}s | ${transcript} |`,
+    );
+  }
+
+  const t = group.totals;
+  lines.push(`| **Total** | | **${t.openaiWhisper}s** | **${t.fasterWhisper}s** | **${t.kesha}s** | |`);
+  lines.push("");
+
+  const speedVsWhisper = t.kesha > 0 ? round1(t.openaiWhisper / t.kesha) : 0;
+  const speedVsFaster = t.kesha > 0 ? round1(t.fasterWhisper / t.kesha) : 0;
+  lines.push(
+    `**Speedup:** Kesha is ~${speedVsWhisper}x faster than openai-whisper, ~${speedVsFaster}x faster than faster-whisper`,
+  );
+
+  return lines;
+}
+
+function renderMarkdown(report: BenchmarkReport): string {
+  const p = report.platform;
+  const lines: string[] = [
+    "## Benchmark: Speech-to-Text Engines",
+    "",
+    `**Date:** ${report.date}`,
+    `**Platform:** ${p.os} ${p.arch} (${p.chip}, ${p.ram} RAM)`,
+    `**Kesha backend:** ${report.keshaBackend}`,
+    `**Whisper model:** ${report.whisperModel}`,
+    `**openai-whisper** is the default transcription engine in OpenClaw.`,
+    "",
+  ];
+
+  for (const group of report.groups) {
+    lines.push(...renderGroup(group));
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+// --- Main ---
 
 async function main(): Promise<void> {
-  try {
-    const files = getBenchmarkFiles();
-    const system = getSystemInfo();
-    const version = getCliVersion();
+  const repoDir = resolve(import.meta.dir, "..");
+  const ruFiles = scanFixtures(resolve(repoDir, "fixtures/benchmark"));
+  const enFiles = scanFixtures(resolve(repoDir, "fixtures/benchmark-en"));
 
-    await ensureBackendInstalled();
-
-    const whisperResults = runWhisperBenchmark(files);
-    const parakeetResults = runParakeetBenchmark(files);
-    const report = renderBenchmarkReport({
-      date: new Date().toISOString().split("T")[0],
-      version,
-      system,
-      whisperResults,
-      parakeetResults,
-    });
-
-    console.log(report.markdown);
-    await writeBenchmarkSummary(report.summary);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`ERROR: ${message}`);
-    process.exit(1);
+  if (ruFiles.length === 0 && enFiles.length === 0) {
+    throw new Error("No fixture files found");
   }
+
+  const platform = getSystemInfo();
+  const keshaBackend = getKeshaBackend();
+  const python = ensureVenv();
+
+  const groups: GroupResult[] = [];
+
+  for (const [name, files] of [["Russian", ruFiles], ["English", enFiles]] as const) {
+    if (files.length === 0) continue;
+
+    console.error(`\n--- ${name} (${files.length} files) ---\n`);
+
+    const owResults = runOpenAIWhisper(python, files);
+    const fwResults = runFasterWhisper(python, files);
+    const kResults = runKesha(files);
+
+    const results: FileResult[] = files.map((f, i) => ({
+      file: basename(f),
+      openaiWhisper: owResults[i],
+      fasterWhisper: fwResults[i],
+      kesha: kResults[i],
+    }));
+
+    groups.push({
+      name,
+      results,
+      totals: {
+        openaiWhisper: sumTimes(owResults),
+        fasterWhisper: sumTimes(fwResults),
+        kesha: sumTimes(kResults),
+      },
+    });
+  }
+
+  const report: BenchmarkReport = {
+    date: new Date().toISOString().split("T")[0],
+    platform,
+    keshaBackend,
+    whisperModel: "base",
+    groups,
+  };
+
+  console.log(renderMarkdown(report));
+  await Bun.write(RESULTS_FILE, JSON.stringify(report, null, 2));
+  console.error(`\nJSON results written to ${RESULTS_FILE}`);
 }
 
-await main();
+main().catch((err) => {
+  console.error(`ERROR: ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+});
