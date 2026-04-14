@@ -93,7 +93,19 @@ if (installOut.includes("installed") || installOut.includes("already") || instal
   failed++;
 }
 
-const total = files.length + 4;
+// E2E: both "kesha" and "parakeet" commands work
+for (const cmd of ["kesha", "parakeet"] as const) {
+  const proc = Bun.spawnSync([cmd, "--version"], { stdout: "pipe", stderr: "pipe" });
+  if (proc.exitCode === 0 && proc.stdout.toString().trim()) {
+    console.log(`  PASS  "${cmd}" command works (${proc.stdout.toString().trim()})`);
+    passed++;
+  } else {
+    console.log(`  FAIL  "${cmd}" command not found or returned error`);
+    failed++;
+  }
+}
+
+const total = files.length + 6;
 console.log(`\n${passed}/${total} passed, ${failed} failed`);
 
 if (failed > 0) process.exit(1);
