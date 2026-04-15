@@ -25,8 +25,16 @@ export async function downloadEngine(noCache = false, backend?: string): Promise
   } else {
     const binaryName = getEngineBinaryName();
     const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
-    const version = typeof pkg.version === "string" ? pkg.version : "unknown";
-    const url = `https://github.com/${GITHUB_REPO}/releases/download/v${version}/${binaryName}`;
+    // The engine version is tracked separately from the CLI version so
+    // CLI-only patch releases don't require cutting a new GitHub release
+    // + Rust rebuild. Fall back to the CLI version for backwards compat.
+    const engineVersion =
+      typeof pkg.keshaEngine?.version === "string"
+        ? pkg.keshaEngine.version
+        : typeof pkg.version === "string"
+        ? pkg.version
+        : "unknown";
+    const url = `https://github.com/${GITHUB_REPO}/releases/download/v${engineVersion}/${binaryName}`;
 
     mkdirSync(dirname(binPath), { recursive: true });
 
