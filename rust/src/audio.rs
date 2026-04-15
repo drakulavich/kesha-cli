@@ -148,8 +148,7 @@ fn resample(samples: Vec<f32>, src_rate: u32) -> Result<Vec<f32>> {
         Async::<f32>::new_sinc(ratio, 1.1, &params, chunk_size, channels, FixedAsync::Input)
             .context("failed to create resampler")?;
 
-    // Wrap mono samples in a vec-of-vecs (one channel)
-    let input_data = vec![samples];
+    let input_data = [samples];
     let total_frames = input_data[0].len();
 
     let mut output_mono: Vec<f32> =
