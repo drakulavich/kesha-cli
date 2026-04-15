@@ -28,30 +28,43 @@ Two interfaces: the CLI and a programmatic API exported from `@drakulavich/kesha
 - TypeScript is executed directly by Bun — no build step
 - The engine itself is a Rust binary (`rust/`), invoked as a subprocess — not linked in-process
 
-### RELEASE PROCESS
+### RELEASE PROCESS — CLI AND ENGINE ARE VERSIONED INDEPENDENTLY
 
-- Before `npm publish`, run `make smoke-test` locally against the just-downloaded engine binary and verify all tests pass
-- Do NOT publish to npm if smoke tests fail
-- Tag and push (`git tag vX.Y.Z && git push origin vX.Y.Z`) — CI builds all three platform binaries, smoke-tests each one, and creates a draft GitHub release
-- Wait for the workflow to finish, publish the draft (`gh release edit vX.Y.Z --draft=false`), then `npm publish --access public`
+The npm package version (`package.json#version`) and the Rust engine version (`rust/Cargo.toml#version`, mirrored into `package.json#keshaEngine.version`) are **decoupled**. `src/engine-install.ts` downloads `kesha-engine` from the GitHub release matching `keshaEngine.version`, falling back to `package.json#version` if that field is missing.
+
+This split exists because CLI-only patches would otherwise require a full engine rebuild + new GitHub release (with the PR CI stuck on HTTP 404 until that release landed).
+
+**CLI-only patch release** (docs, TS bug fix, plugin manifest tweak, etc.):
+
+1. Open a PR that bumps only `package.json#version`. Leave `keshaEngine.version` and `rust/Cargo.toml` alone.
+2. PR CI runs against the existing published engine binary — integration tests pass because the `v${keshaEngine.version}` release already exists.
+3. Merge, then `npm publish --access public`. No git tag, no build-engine run, no GitHub release.
+
+**Engine release** (any change under `rust/`, or bumping `keshaEngine.version`):
+
+1. Open a PR bumping **all three** in lockstep: `rust/Cargo.toml#version`, `rust/Cargo.lock` (via `cargo check`), and `package.json#keshaEngine.version`. Usually bump `package.json#version` to match.
+2. Merge to main.
+3. `git tag vX.Y.Z && git push origin vX.Y.Z` — triggers `build-engine.yml`, which builds all three platform binaries, smoke-tests each with `--capabilities-json`, and creates a **draft** GitHub release.
+4. Verify the draft, then `gh release edit vX.Y.Z --draft=false`.
+5. `make smoke-test` locally against the just-downloaded binary. Do NOT publish if smoke tests fail.
+6. `npm publish --access public`.
+
+**Always true**:
+- Before any npm publish, run `make smoke-test` locally and verify the tests pass.
+- Do NOT publish to npm if smoke tests fail.
 
 ### TAG NAMES ARE ONE-USE UNDER IMMUTABLE RELEASES
 
 - GitHub's "immutable releases" feature permanently reserves a tag name as soon as the release has been published, even after the release is deleted. Attempts to re-push the same tag fail with `Cannot create ref due to creations being restricted` / `tag_name was used by an immutable release`.
 - **If a release goes out broken, you cannot reuse its tag.** Bump the patch version and cut a new tag (e.g. `v1.0.1` → `v1.0.2`).
 - Corollary: never tag-and-push "just to test". Dispatch the `🔨 Build Engine` workflow manually on `main` instead (it skips the release job when not triggered by a tag push).
+- **Skipping** a tag is fine. We skipped `v1.0.1` for exactly this reason.
 
 ### VERIFY BEFORE PUSHING
 
 - Run `bun test && bunx tsc --noEmit` locally before every push
-- When changing Rust code (`rust/`), run `cd rust && cargo fmt` and `cargo clippy --all-features -- -D warnings` before every commit
+- When changing Rust code (`rust/`), run `cd rust && cargo fmt` and `cargo clippy -- -D warnings` before every commit
 - When changing Rust code that touches the backend modules, also run `cd rust && cargo check --features coreml --no-default-features` — the Rust test workflow only exercises the default feature set by default, and the CoreML backend has previously rotted silently because no CI job built it
-- Do NOT push broken code — fix locally first
-
-### VERIFY BEFORE PUSHING
-
-- Run `bun test && bunx tsc --noEmit` locally before every push
-- When changing Rust code (`rust/`), run `cd rust && cargo fmt` before every commit
 - Do NOT push broken code — fix locally first
 
 ### ERROR HANDLING
