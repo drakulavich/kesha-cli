@@ -1,6 +1,6 @@
 {
   "name": "@drakulavich/kesha-voice-kit",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Open-source voice toolkit for Apple Silicon. Speech-to-text, language detection. 25 languages.",
   "type": "module",
   "bin": {
@@ -17,11 +17,17 @@
     "package.json",
     "tsconfig.json",
     "openclaw.plugin.json",
+    "openclaw-plugin.js",
     "SKILL.md",
     "scripts/postinstall.cjs",
     "LICENSE",
     "README.md"
   ],
+  "openclaw": {
+    "extensions": [
+      "./openclaw-plugin.js"
+    ]
+  },
   "scripts": {
     "test": "bun test",
     "test:unit": "bun test tests/unit/",
