@@ -131,8 +131,10 @@ non-obvious ones:
   parse JSON, clean up in `finally`.
 - **Stale extension dirs survive failed installs.** If
   `openclaw plugins install` complains with `plugin already exists`,
-  `rm -rf ~/.openclaw/extensions/kesha-voice-kit` and retry.
-  `openclaw plugins uninstall` is interactive — no `--yes` flag.
+  re-run with `--force` to overwrite in place.
+  `openclaw plugins uninstall` is interactive — no `--yes` flag — so
+  `--force` is the right loop for iterative development. Reserve
+  `rm -rf ~/.openclaw/extensions/<id>` for when `--force` itself fails.
 - **Plugin changes are CLI-only patches.** Bump `package.json#version`
   only, leave `keshaEngine.version` alone, no git tag, just `npm publish`.
 
