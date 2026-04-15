@@ -28,6 +28,9 @@
       "./openclaw-plugin.js"
     ]
   },
+  "keshaEngine": {
+    "version": "1.0.2"
+  },
   "scripts": {
     "test": "bun test",
     "test:unit": "bun test tests/unit/",
