@@ -28,17 +28,15 @@ kesha audio.ogg     # transcript to stdout
 
 ## OpenClaw Integration
 
-Kesha Voice Kit is built as a skill for [OpenClaw](https://github.com/openclaw/openclaw) — give your LLM agent ears. No API keys, everything runs locally on your machine.
+Kesha Voice Kit ships as a plugin for [OpenClaw](https://github.com/openclaw/openclaw) — give your LLM agent ears. No API keys, everything runs locally on your machine.
 
-Add to your OpenClaw config:
+**Install the plugin** (requires the `kesha` CLI — see [Quick Start](#quick-start)):
 
-```json
-{
-  "type": "cli",
-  "command": "kesha",
-  "args": ["--json", "{{MediaPath}}"]
-}
+```bash
+openclaw plugins install @drakulavich/kesha-voice-kit
 ```
+
+OpenClaw fetches the package from npm, auto-detects [`openclaw.plugin.json`](./openclaw.plugin.json), and wires `kesha --json {{MediaPath}}` as the audio transcription backend under `tools.media.audio`. Manage it afterwards with `openclaw plugins list`, `openclaw plugins disable kesha-voice-kit`, or `openclaw plugins uninstall kesha-voice-kit`.
 
 Your agent receives a voice message in Telegram/WhatsApp/Slack. Kesha transcribes it locally, detects the language, and returns structured JSON:
 

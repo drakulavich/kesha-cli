@@ -1,6 +1,6 @@
 import { dirname } from "path";
 import { existsSync, mkdirSync, chmodSync } from "fs";
-import { getEngineBinPath } from "./engine";
+import { getEngineBinPath, getEngineCapabilities } from "./engine";
 import { log } from "./log";
 import { streamResponseToFile } from "./progress";
 
@@ -50,8 +50,17 @@ export async function downloadEngine(noCache = false, backend?: string): Promise
     log.success("Engine binary downloaded.");
   }
 
+  if (backend) {
+    const caps = await getEngineCapabilities();
+    if (caps && caps.backend !== backend) {
+      throw new Error(
+        `Requested backend "${backend}" is not available: the installed engine for this platform uses "${caps.backend}".\n  Fix: omit --${backend} to use the auto-detected backend, or run on a platform that ships the "${backend}" build.`,
+      );
+    }
+  }
+
   log.progress("Installing models...");
-  const installArgs = ["install", ...(noCache ? ["--no-cache"] : []), ...(backend ? [`--backend=${backend}`] : [])];
+  const installArgs = ["install", ...(noCache ? ["--no-cache"] : [])];
   const proc = Bun.spawnSync([binPath, ...installArgs], {
     stdout: "pipe",
     stderr: "pipe",
