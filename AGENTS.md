@@ -47,17 +47,42 @@ make publish                   # release + npm publish
 
 ## Release Process
 
+The npm package version and the Rust engine version are **decoupled**.
+`src/engine-install.ts` downloads the engine from the GitHub release tagged
+`v${package.json#keshaEngine.version}` (falling back to `package.json#version`).
+This split exists so CLI-only patches don't require a new engine release —
+the previous coupling caused every release-bump PR's integration tests to 404
+until the matching GitHub release existed.
+
+### CLI-only patch (docs, TS bug fix, plugin manifest tweak, …)
+
 ```bash
-# 1. Bump version (package.json + rust/Cargo.toml + rust/Cargo.lock) via PR, merge
+# 1. Bump ONLY package.json#version. Leave keshaEngine.version and
+#    rust/Cargo.toml at the current engine version.
 # 2. Verify locally
-make release
+make smoke-test
+# 3. Open PR, merge. No git tag. No build-engine run.
+# 4. Publish
+npm publish --access public
+```
 
-# 3. Tag and push — build-engine.yml builds all 3 platform binaries,
-#    smoke-tests each with --capabilities-json, and creates a draft release
+### Engine release (anything under rust/, or a coreml/onnx change)
+
+```bash
+# 1. Bump all three in lockstep:
+#      rust/Cargo.toml#version
+#      rust/Cargo.lock           (via cd rust && cargo check)
+#      package.json#keshaEngine.version
+#    Usually also bump package.json#version to match.
+# 2. PR, merge to main.
+# 3. Tag and push — build-engine.yml builds all 3 binaries,
+#    smoke-tests each with --capabilities-json, and creates a draft release.
 git tag vX.Y.Z && git push origin vX.Y.Z
-
-# 4. Publish the draft and then ship to npm
+# 4. Verify the draft, then publish.
 gh release edit vX.Y.Z --draft=false
+# 5. Verify the new binary locally.
+make smoke-test
+# 6. Ship to npm.
 npm publish --access public
 ```
 
