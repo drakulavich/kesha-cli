@@ -64,20 +64,23 @@ describe.skipIf(!engineInstalled)("e2e-engine", () => {
     expect(result.confidence).toBeGreaterThan(0);
   }, 60_000);
 
+  // Cold-start of macOS NLLanguageRecognizer can exceed Bun's 5s default
+  // test timeout on the CI runner; give it the same 60s budget as the
+  // audio-based tests above.
   test("engine detect-text-lang identifies Russian text", async () => {
     const { stdout, exitCode } = await runEngine(["detect-text-lang", "Привет мир как дела"]);
     expect(exitCode).toBe(0);
     const result = JSON.parse(stdout);
     expect(result.code).toBe("ru");
     expect(result.confidence).toBeGreaterThan(0.5);
-  });
+  }, 60_000);
 
   test("engine detect-text-lang identifies English text", async () => {
     const { stdout, exitCode } = await runEngine(["detect-text-lang", "Hello world how are you doing today"]);
     expect(exitCode).toBe(0);
     const result = JSON.parse(stdout);
     expect(result.code).toBe("en");
-  });
+  }, 60_000);
 });
 
 describe.skipIf(!engineInstalled)("e2e-transcribe", () => {

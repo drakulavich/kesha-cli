@@ -1,4 +1,8 @@
-# parakeet-cli - Agent Development Guide
+# Kesha Voice Kit — Agent Development Guide
+
+> The authoritative reference for engineering rules, architecture, and release
+> workflow is **[CLAUDE.md](./CLAUDE.md)**. This file keeps a shorter,
+> editor-agnostic summary. When they disagree, CLAUDE.md wins.
 
 ## Build & Test Commands
 
@@ -13,48 +17,61 @@ make publish                   # release + npm publish
 
 ## Architecture
 
-- **src/cli.ts**: CLI entry point — argument parsing, install/transcribe commands
-- **src/lib.ts**: Public API — `transcribe`, `downloadModel`, `downloadCoreML`
-- **src/transcribe.ts**: Backend selection — CoreML first, ONNX fallback
-- **src/models.ts**: Thin re-export layer for `onnx-install` + `coreml-install`
-- **src/onnx-install.ts**: ONNX model download, cache check, requireModel
-- **src/coreml-install.ts**: CoreML binary + model download with capabilities handshake
-- **src/coreml.ts**: CoreML backend — detection, subprocess invocation, wav retry
-- **src/audio.ts**: ffmpeg-based audio conversion
-- **src/benchmark-report.ts**: Benchmark markdown generation
-- **src/preprocess.ts → encoder.ts → decoder.ts → tokenizer.ts**: ONNX inference pipeline
-- **swift/**: Swift helper binary wrapping FluidAudio for CoreML transcription
-- **scripts/**: Benchmark + smoke test scripts (TypeScript)
-- **.github/scripts/**: CI helper scripts (TypeScript)
-- **.github/actions/**: Composite actions (setup-bun, install-parakeet-backend)
+- **src/cli.ts** — Bun CLI entry: argument parsing, install/transcribe/status commands
+- **src/lib.ts** — Public API exposed at `@drakulavich/kesha-voice-kit/core`
+- **src/engine.ts** — Wrapper for spawning the `kesha-engine` Rust subprocess + `getEngineCapabilities`
+- **src/engine-install.ts** — Downloads the engine binary from the GitHub release matching the current `package.json` version
+- **src/transcribe.ts** — Thin forwarder to the engine
+- **rust/** — `kesha-engine` Rust binary (ASR + lang-id), single source of truth for inference
+  - `rust/src/main.rs` — clap subcommands: `transcribe`, `detect-lang`, `detect-text-lang`, `install`, `--capabilities-json`
+  - `rust/src/backend/{onnx,fluidaudio}.rs` — feature-gated ASR backends behind a single trait
+  - `rust/src/lang_id.rs` — ONNX speechbrain, always compiled regardless of feature
+  - `rust/build.rs` — emits the Swift rpath under `#[cfg(feature = "coreml")]`
+- **scripts/** — Benchmark + smoke-test TypeScript scripts
+- **.github/workflows/** — `ci.yml`, `rust-test.yml`, `build-engine.yml`, `benchmark.yml`
 
 ## Critical Rules
 
-- **NEVER** auto-download models — use `parakeet install`, show error if missing
-- **NEVER** use Node.js APIs — this is Bun-only (`Bun.spawn`, `Bun.write`, `Bun.file`, `Bun.which`)
-- **NEVER** use `.subarray()` for ONNX tensors — use `.slice()` (Bun limitation)
-- **NEVER** push directly to `main` — it is a protected branch
-- All changes must go through pull requests: create a feature branch, push, open a PR
+- **NEVER** auto-download the engine or models — use `kesha install`, show an actionable error if missing
+- **NEVER** use Node.js APIs in the CLI — it is Bun-only (`Bun.spawn`, `Bun.write`, `Bun.file`, `Bun.which`)
+- **NEVER** push directly to `main` — it is a protected branch; all changes go through PRs
+- **NEVER** run `git push` unless explicitly requested by the user
+- **NEVER** blindly forward CLI flags to `kesha-engine` subcommands — validate against `--capabilities-json` instead. `kesha-engine install` accepts only `--no-cache`.
 - Create a **new PR for each distinct user request** — do not pile unrelated changes into one PR
-- **NEVER** run `git push` unless explicitly requested by user
-- Add unit tests when writing new code
-- ffmpeg must be in PATH for ONNX backend audio conversion
 - **NEVER** write more than 3 lines of bash in GitHub Actions workflow steps — extract to `.github/scripts/`
-- **BEFORE npm publish**: run `make smoke-test` locally and verify all tests pass. Do NOT publish if smoke tests fail.
-- **BEFORE pushing**: run `bun test && bunx tsc --noEmit` locally and verify all tests pass. Do NOT push broken code.
-- **ALWAYS write proper error handling**: errors must be human-readable with context (what failed, why, what to do). Never swallow errors silently. Never let a function return success when it failed.
+- **BEFORE `npm publish`**: run `make smoke-test` against the freshly downloaded engine binary. Do NOT publish if smoke tests fail.
+- **BEFORE pushing TS changes**: run `bun test && bunx tsc --noEmit`
+- **BEFORE pushing Rust changes**: run `cd rust && cargo fmt && cargo clippy -- -D warnings && cargo test` — and if you touched `rust/src/backend/**` or `rust/Cargo.toml`, also run `cargo check --features coreml --no-default-features`
+- **ALWAYS write proper error handling**: human-readable messages with context (what failed, why, what to do). Never swallow errors silently.
+- Add unit tests when writing new code
 
 ## Release Process
 
 ```bash
-# 1. Bump version in package.json via PR, merge
+# 1. Bump version (package.json + rust/Cargo.toml + rust/Cargo.lock) via PR, merge
 # 2. Verify locally
 make release
-# 3. Tag and push — CI builds binary + creates GitHub release
-git tag v0.8.0 && git push --tags
-# 4. Publish to npm after CI passes
+
+# 3. Tag and push — build-engine.yml builds all 3 platform binaries,
+#    smoke-tests each with --capabilities-json, and creates a draft release
+git tag vX.Y.Z && git push origin vX.Y.Z
+
+# 4. Publish the draft and then ship to npm
+gh release edit vX.Y.Z --draft=false
 npm publish --access public
 ```
+
+### Tag names are one-use
+
+GitHub's immutable releases feature permanently reserves a tag as soon as a
+release publishes. **If a release goes out broken, you cannot reuse its tag —
+bump the patch version instead.** v1.0.1 was skipped for exactly this reason.
+
+### Debugging the build-engine workflow without tagging
+
+`build-engine.yml` accepts `workflow_dispatch`. Run `gh workflow run "🔨 Build
+Engine" --ref main` to build + smoke-test all three platforms without creating
+a release — the release job is gated on `startsWith(github.ref, 'refs/tags/v')`.
 
 ## Git Worktrees for Big Changes
 
