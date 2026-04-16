@@ -30,22 +30,14 @@ kesha audio.ogg     # transcript to stdout
 
 Kesha Voice Kit ships as a plugin for [OpenClaw](https://github.com/openclaw/openclaw) — give your LLM agent ears. No API keys, everything runs locally on your machine.
 
-**Install the `kesha` CLI first** (the plugin shells out to it):
-
 ```bash
-bun add -g @drakulavich/kesha-voice-kit
-kesha install
-```
-
-**Then configure OpenClaw to use Kesha for audio transcription:**
-
-```bash
+bun add -g @drakulavich/kesha-voice-kit && kesha install
 openclaw plugins install @drakulavich/kesha-voice-kit
 openclaw config set tools.media.audio.models \
   '[{"type":"cli","command":"kesha","args":["--format","transcript","{{MediaPath}}"],"timeoutSeconds":15}]'
-openclaw config set tools.media.audio.enabled true
-openclaw gateway restart
 ```
+
+> If audio transcription is not already enabled: `openclaw config set tools.media.audio.enabled true`
 
 Your agent receives a voice message in Telegram/WhatsApp/Slack, Kesha transcribes it locally, and the agent sees enriched context:
 
@@ -61,6 +53,7 @@ Manage the plugin with `openclaw plugins list`, `openclaw plugins disable kesha-
 ```bash
 kesha install                              # download engine and models
 kesha audio.ogg                            # transcribe (plain text)
+kesha a.ogg b.ogg c.ogg                   # multiple files, one per line
 kesha --format transcript audio.ogg        # text + language/confidence
 kesha --format json audio.ogg              # full JSON with lang fields
 kesha --json audio.ogg                     # alias for --format json
@@ -69,7 +62,7 @@ kesha --lang en audio.ogg                  # warn if detected language differs
 kesha status                               # show installed backend info
 ```
 
-Stdout: transcript. Stderr: errors. Pipe-friendly.
+Accepts any number of files — works like `head`: one transcript per file, headers for multiple inputs. Stdout: transcript. Stderr: errors. Pipe-friendly.
 
 **Also available as `parakeet` command** (backward-compatible alias).
 
