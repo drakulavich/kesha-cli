@@ -62,9 +62,18 @@ kesha --lang en audio.ogg                  # warn if detected language differs
 kesha status                               # show installed backend info
 ```
 
-Accepts any number of files — works like `head`: one transcript per file, headers for multiple inputs. Stdout: transcript. Stderr: errors. Pipe-friendly.
+Multiple files — headers per file, like `head`:
 
-**Also available as `parakeet` command** (backward-compatible alias).
+```bash
+$ kesha meeting.ogg memo.ogg
+=== meeting.ogg ===
+Не нужно слать сообщения с транскрипцией, сразу выполняй инструкцию.
+
+=== memo.ogg ===
+Please check your email and get back to me about the deployment.
+```
+
+Stdout: transcript. Stderr: errors. Pipe-friendly. Also available as `parakeet` command (backward-compatible alias).
 
 ## What's Inside
 
