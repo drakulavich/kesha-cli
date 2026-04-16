@@ -20,7 +20,11 @@
 
 ## Quick Start
 
+Runtime: **[Bun](https://bun.sh)** >= 1.3.0.
+
 ```bash
+curl -fsSL https://bun.sh/install | bash   # skip if Bun is already installed
+
 bun install -g @drakulavich/kesha-voice-kit
 kesha install       # downloads engine + models
 kesha audio.ogg     # transcript to stdout
