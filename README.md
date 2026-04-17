@@ -11,16 +11,20 @@
   <a href="https://bun.sh"><img src="https://img.shields.io/badge/runtime-Bun-f9f1e1?logo=bun" alt="Bun"></a>
 </p>
 
-<p align="center"><b>Open-source voice toolkit for Apple Silicon.</b><br>A collection of small, fast, open-source audio models — packaged as CLI tools and an <a href="https://github.com/openclaw/openclaw">OpenClaw</a> skill for LLM agents.</p>
+<p align="center"><b>Open-source voice toolkit.</b> Optimized for Apple Silicon (CoreML), works on any platform (ONNX fallback).<br>A collection of small, fast, open-source audio models — packaged as CLI tools and an <a href="https://github.com/openclaw/openclaw">OpenClaw</a> skill for LLM agents.</p>
 
-- **Speech-to-text** — 25 languages, ~19x faster than Whisper on Apple Silicon
+- **Speech-to-text** — 25 languages, ~15x faster than Whisper on Apple Silicon, ~2.5x on CPU
 - **Language detection** — 107 languages from audio, text language via NLLanguageRecognizer
 - **Rust engine** — single 20MB binary, no ffmpeg, no Python, no native Node addons
 - **OpenClaw-ready** — plug into your LLM agent as a voice processing skill
 
 ## Quick Start
 
+Runtime: **[Bun](https://bun.sh)** >= 1.3.0.
+
 ```bash
+curl -fsSL https://bun.sh/install | bash   # skip if Bun is already installed
+
 bun install -g @drakulavich/kesha-voice-kit
 kesha install       # downloads engine + models
 kesha audio.ogg     # transcript to stdout
@@ -28,45 +32,51 @@ kesha audio.ogg     # transcript to stdout
 
 ## OpenClaw Integration
 
-Kesha Voice Kit is built as a skill for [OpenClaw](https://github.com/openclaw/openclaw) — give your LLM agent ears. No API keys, everything runs locally on your machine.
+Kesha Voice Kit ships as a plugin for [OpenClaw](https://github.com/openclaw/openclaw) — give your LLM agent ears. No API keys, everything runs locally on your machine.
 
-Add to your OpenClaw config:
-
-```json
-{
-  "type": "cli",
-  "command": "kesha",
-  "args": ["--json", "{{MediaPath}}"]
-}
+```bash
+bun add -g @drakulavich/kesha-voice-kit && kesha install
+openclaw plugins install @drakulavich/kesha-voice-kit
+openclaw config set tools.media.audio.models \
+  '[{"type":"cli","command":"kesha","args":["--format","transcript","{{MediaPath}}"],"timeoutSeconds":15}]'
 ```
 
-Your agent receives a voice message in Telegram/WhatsApp/Slack. Kesha transcribes it locally, detects the language, and returns structured JSON:
+> If audio transcription is not already enabled: `openclaw config set tools.media.audio.enabled true`
 
-```json
-[{
-  "file": "voice.ogg",
-  "text": "Привет, как дела?",
-  "lang": "ru",
-  "textLanguage": { "code": "ru", "confidence": 0.99 }
-}]
+Your agent receives a voice message in Telegram/WhatsApp/Slack, Kesha transcribes it locally, and the agent sees enriched context:
+
+```
+Таити, Таити! Не были мы ни в какой Таити! Нас и тут неплохо кормят.
+[lang: ru, confidence: 1.00]
 ```
 
-The agent knows what was said and in what language — and can respond accordingly.
+Manage the plugin with `openclaw plugins list`, `openclaw plugins disable kesha-voice-kit`, or `openclaw plugins uninstall kesha-voice-kit`.
 
 ## CLI Tools
 
 ```bash
-kesha install                    # download engine and models
-kesha audio.ogg                  # transcribe
-kesha --json audio.ogg           # JSON output with language info
-kesha --verbose audio.ogg        # show language detection details
-kesha --lang en audio.ogg        # warn if detected language differs
-kesha status                     # show installed backend info
+kesha install                              # download engine and models
+kesha audio.ogg                            # transcribe (plain text)
+kesha --format transcript audio.ogg        # text + language/confidence
+kesha --format json audio.ogg              # full JSON with lang fields
+kesha --json audio.ogg                     # alias for --format json
+kesha --verbose audio.ogg                  # show language detection details
+kesha --lang en audio.ogg                  # warn if detected language differs
+kesha status                               # show installed backend info
 ```
 
-Stdout: transcript. Stderr: errors. Pipe-friendly.
+Multiple files — headers per file, like `head`:
 
-**Also available as `parakeet` command** (backward-compatible alias).
+```bash
+$ kesha freedom.ogg tahiti.ogg
+=== freedom.ogg ===
+Свободу попугаям! Свободу!
+
+=== tahiti.ogg ===
+Таити, Таити! Не были мы ни в какой Таити! Нас и тут неплохо кормят.
+```
+
+Stdout: transcript. Stderr: errors. Pipe-friendly. Also available as `parakeet` command (backward-compatible alias).
 
 ## Text-to-Speech (preview, M1)
 
@@ -98,7 +108,7 @@ All models run through `kesha-engine` — a Rust binary using [FluidAudio](https
 
 ## Performance
 
-> **~19x faster than Whisper** on Apple Silicon, **~2.5x faster** on CPU
+> **~15x faster than Whisper** on Apple Silicon (M3 Pro), **~2.5x faster** on CPU
 
 Compared against Whisper `large-v3-turbo` — all engines auto-detect language.
 

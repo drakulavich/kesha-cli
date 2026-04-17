@@ -13,8 +13,14 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       KOKORO_CACHE: ${{ github.workspace }}/.kokoro-spike
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v6
+      - name: Select Xcode 16 (Swift 6)
+        if: matrix.os == 'macos-14'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -49,3 +55,9 @@ jobs:
       - name: Clippy
         if: matrix.os == 'ubuntu-latest'
         run: bash rust/ci/run-clippy.sh "${{ runner.os }}"
+
+      # Guard against coreml-backend rot: v1.0.0 shipped with broken
+      # coreml code because no PR CI job ever tried to build it.
+      - name: Check coreml feature
+        if: matrix.os == 'macos-14'
+        run: cd rust && cargo check --features coreml --no-default-features

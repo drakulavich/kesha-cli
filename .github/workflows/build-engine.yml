@@ -2,7 +2,20 @@ name: "🔨 Build Engine"
 
 on:
   push:
-    tags: ["v*"]
+    # Match real engine-release tags ("v1.0.2") but skip CLI-only marker
+    # tags ("v1.0.8-cli"). CLI-only patches do not rebuild the Rust
+    # engine — a separate marker release is created manually via
+    # `gh release create v<X.Y.Z>-cli --notes-file ...` without
+    # triggering this workflow. See CLAUDE.md → RELEASE PROCESS.
+    tags:
+      - "v*"
+      - "!v*-cli"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Git ref to build (tag, branch, or SHA)"
+        required: false
+        default: "main"
 
 permissions:
   contents: write
@@ -18,7 +31,7 @@ jobs:
         include:
           - os: macos-14
             target: aarch64-apple-darwin
-            features: onnx
+            features: coreml
             binary: kesha-engine-darwin-arm64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -29,8 +42,19 @@ jobs:
             features: onnx
             binary: kesha-engine-windows-x64.exe
     runs-on: ${{ matrix.os }}
+    env:
+      # Target macOS 14 so the Swift compiler treats concurrency as
+      # OS-provided and does not emit an explicit @rpath dependency on
+      # libswift_Concurrency.dylib (which no longer ships as a standalone
+      # file on macOS 26+).
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v6
+      - name: Select Xcode 16 (Swift 6)
+        if: matrix.os == 'macos-14'
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
@@ -45,6 +69,16 @@ jobs:
           src="rust/target/${{ matrix.target }}/release/kesha-engine"
           if [ "${{ matrix.os }}" = "windows-latest" ]; then src="${src}.exe"; fi
           cp "$src" "${{ matrix.binary }}"
+      - name: Smoke-test binary
+        if: matrix.os != 'windows-latest'
+        shell: bash
+        run: |
+          chmod +x "${{ matrix.binary }}"
+          "./${{ matrix.binary }}" --capabilities-json
+      - name: Inspect macOS dynamic deps
+        if: matrix.os == 'macos-14'
+        shell: bash
+        run: otool -L "${{ matrix.binary }}" && otool -l "${{ matrix.binary }}" | grep -A2 LC_RPATH || true
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
@@ -53,6 +87,7 @@ jobs:
 
   release:
     needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Download all artifacts

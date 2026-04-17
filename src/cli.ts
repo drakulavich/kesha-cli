@@ -32,6 +32,7 @@ interface MainCommandArgs {
   _: string[];
   json: boolean;
   verbose: boolean;
+  format?: string;
   lang?: string;
 }
 
@@ -47,9 +48,26 @@ function resolveBackendFlag(coreml: boolean, onnx: boolean): string | undefined 
   return undefined;
 }
 
+async function askForStar() {
+  const gh = Bun.which("gh");
+  if (!gh) {
+    log.info("\nIf you enjoy Kesha Voice Kit, consider starring the repo:");
+    log.info("  https://github.com/drakulavich/kesha-voice-kit");
+    return;
+  }
+  const authCheck = Bun.spawnSync([gh, "auth", "status"], { stdout: "ignore", stderr: "ignore" });
+  if (authCheck.exitCode !== 0) return;
+  const starred = Bun.spawnSync([gh, "api", "user/starred/drakulavich/kesha-voice-kit"], { stdout: "ignore", stderr: "ignore" });
+  if (starred.exitCode === 0) return; // already starred
+  log.info("\n⭐ If you enjoy Kesha Voice Kit, star it on GitHub:");
+  log.info("  https://github.com/drakulavich/kesha-voice-kit");
+  log.info('  Or run: gh api -X PUT /user/starred/drakulavich/kesha-voice-kit');
+}
+
 async function performInstall(noCache: boolean, backend?: string, tts = false) {
   try {
     await downloadEngine(noCache, backend, { tts });
+    await askForStar();
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
     log.error(message);
@@ -203,6 +221,10 @@ export const mainCommand = defineCommand({
       description: "Show language detection details",
       default: false,
     },
+    format: {
+      type: "string",
+      description: "Output format: transcript (enriched text with lang/confidence)",
+    },
     lang: {
       type: "string",
       description: "Expected language code (ISO 639-1), warn if mismatch",
@@ -219,7 +241,7 @@ export const mainCommand = defineCommand({
     let hasError = false;
     const results: TranscribeResult[] = [];
 
-    const wantsLangId = !!(args.lang || args.verbose || args.json);
+    const wantsLangId = !!(args.lang || args.verbose || args.json || args.format === "transcript" || args.format === "json");
 
     for (const file of files) {
       try {
@@ -268,8 +290,10 @@ export const mainCommand = defineCommand({
       }
     }
 
-    if (args.json) {
+    if (args.json || args.format === "json") {
       process.stdout.write(formatJsonOutput(results));
+    } else if (args.format === "transcript") {
+      process.stdout.write(formatTranscriptOutput(results));
     } else if (args.verbose) {
       process.stdout.write(formatVerboseOutput(results));
     } else {
@@ -348,6 +372,23 @@ export function formatVerboseOutput(results: TranscribeResult[]): string {
       }
       lines.push("---");
       lines.push(r.text);
+      return lines.join("\n");
+    })
+    .join("\n") + "\n";
+}
+
+export function formatTranscriptOutput(results: TranscribeResult[]): string {
+  return results
+    .map((r, i) => {
+      const lines: string[] = [];
+      if (results.length > 1) {
+        if (i > 0) lines.push("");
+        lines.push(`=== ${r.file} ===`);
+      }
+      lines.push(r.text);
+      const lang = r.textLanguage?.code || r.audioLanguage?.code || r.lang;
+      const confidence = r.textLanguage?.confidence ?? r.audioLanguage?.confidence;
+      if (lang) lines.push(`[lang: ${lang}${confidence != null ? `, confidence: ${confidence.toFixed(2)}` : ""}]`);
       return lines.join("\n");
     })
     .join("\n") + "\n";

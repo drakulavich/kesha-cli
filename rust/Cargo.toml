@@ -1,6 +1,6 @@
 [package]
 name = "kesha-engine"
-version = "1.0.0"
+version = "1.0.2"
 edition = "2021"
 description = "Inference engine for Kesha Voice Kit: ASR + language detection"
 
@@ -14,9 +14,10 @@ path = "src/main.rs"
 
 [features]
 default = ["onnx", "tts"]
+# ASR backend selection. Language detection always uses ONNX regardless.
 coreml = ["dep:fluidaudio-rs"]
-onnx = ["dep:ort", "dep:ndarray"]
-tts = ["dep:hound", "dep:espeakng-sys", "dep:thiserror", "dep:sha2", "onnx"]
+onnx = []
+tts = ["dep:hound", "dep:espeakng-sys", "dep:thiserror", "dep:sha2"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -33,11 +34,12 @@ rubato = "2"
 ureq = "3"
 dirs = "6"
 
-# ONNX backend (Linux/Windows)
-ort = { version = "2.0.0-rc.12", optional = true }
-ndarray = { version = "0.17", optional = true }
+# ONNX Runtime: always needed for audio language detection (speechbrain);
+# also drives ASR transcription when the `onnx` feature is enabled.
+ort = { version = "2.0.0-rc.12" }
+ndarray = { version = "0.17" }
 
-# CoreML backend (macOS)
+# CoreML backend (macOS): FluidAudio/Apple Neural Engine for ASR.
 fluidaudio-rs = { version = "0.1", optional = true }
 audioadapter-buffers = "3.0.0"
 

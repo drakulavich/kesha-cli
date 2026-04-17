@@ -1,92 +1,88 @@
-# parakeet-cli - Agent Development Guide
+# Kesha Voice Kit — Agent Development Guide
 
-## Build & Test Commands
+> Authoritative reference: **[CLAUDE.md](./CLAUDE.md)**. This file is a shorter,
+> editor-agnostic summary. When they disagree, CLAUDE.md wins.
+
+## Build & Test
 
 ```bash
-bun install                    # Install dependencies
-make test                      # Unit + integration tests
-make lint                      # Type check
-make smoke-test                # Link + install + run against fixtures
-make release                   # lint + test + smoke-test
-make publish                   # release + npm publish
+bun install          # Install dependencies
+make test            # Unit + integration tests
+make lint            # Type check
+make smoke-test      # Link + install + run against fixtures
+make release         # lint + test + smoke-test
 ```
 
 ## Architecture
 
-- **src/cli.ts**: CLI entry point — argument parsing, install/transcribe commands
-- **src/lib.ts**: Public API — `transcribe`, `downloadModel`, `downloadCoreML`
-- **src/transcribe.ts**: Backend selection — CoreML first, ONNX fallback
-- **src/models.ts**: Thin re-export layer for `onnx-install` + `coreml-install`
-- **src/onnx-install.ts**: ONNX model download, cache check, requireModel
-- **src/coreml-install.ts**: CoreML binary + model download with capabilities handshake
-- **src/coreml.ts**: CoreML backend — detection, subprocess invocation, wav retry
-- **src/audio.ts**: ffmpeg-based audio conversion
-- **src/benchmark-report.ts**: Benchmark markdown generation
-- **src/preprocess.ts → encoder.ts → decoder.ts → tokenizer.ts**: ONNX inference pipeline
-- **swift/**: Swift helper binary wrapping FluidAudio for CoreML transcription
-- **scripts/**: Benchmark + smoke test scripts (TypeScript)
-- **.github/scripts/**: CI helper scripts (TypeScript)
-- **.github/actions/**: Composite actions (setup-bun, install-parakeet-backend)
+- **src/cli.ts** — Bun CLI: argument parsing, `--format transcript|json`, install/transcribe/status
+- **src/engine-install.ts** — Downloads engine from GitHub release matching `package.json#keshaEngine.version` (falls back to `package.json#version`)
+- **src/engine.ts** — Subprocess wrapper + `getEngineCapabilities`
+- **rust/** — `kesha-engine` Rust binary (ASR + lang-id)
+  - `backend/{onnx,fluidaudio}.rs` — feature-gated ASR backends behind `TranscribeBackend` trait
+  - `lang_id.rs` — ONNX speechbrain (always compiled; `ort`/`ndarray` are unconditional deps)
+  - `build.rs` — Swift rpath under `#[cfg(feature = "coreml")]`
+- **openclaw-plugin.cjs** — OpenClaw plugin (registers `MediaUnderstandingProvider`; actual transcription uses `type: "cli"` config path)
 
 ## Critical Rules
 
-- **NEVER** auto-download models — use `parakeet install`, show error if missing
-- **NEVER** use Node.js APIs — this is Bun-only (`Bun.spawn`, `Bun.write`, `Bun.file`, `Bun.which`)
-- **NEVER** use `.subarray()` for ONNX tensors — use `.slice()` (Bun limitation)
-- **NEVER** push directly to `main` — it is a protected branch
-- All changes must go through pull requests: create a feature branch, push, open a PR
-- Create a **new PR for each distinct user request** — do not pile unrelated changes into one PR
-- **NEVER** run `git push` unless explicitly requested by user
-- Add unit tests when writing new code
-- ffmpeg must be in PATH for ONNX backend audio conversion
-- **NEVER** write more than 3 lines of bash in GitHub Actions workflow steps — extract to `.github/scripts/`
-- **BEFORE npm publish**: run `make smoke-test` locally and verify all tests pass. Do NOT publish if smoke tests fail.
-- **BEFORE pushing**: run `bun test && bunx tsc --noEmit` locally and verify all tests pass. Do NOT push broken code.
-- **ALWAYS write proper error handling**: errors must be human-readable with context (what failed, why, what to do). Never swallow errors silently. Never let a function return success when it failed.
+- **NEVER** auto-download engine or models — `kesha install` only
+- **NEVER** use Node.js APIs — Bun-only (`Bun.spawn`, `Bun.write`, `Bun.file`)
+- **NEVER** push directly to `main` — PRs only
+- **NEVER** forward CLI flags blindly to `kesha-engine` — validate against `--capabilities-json`
+- **BEFORE npm publish**: `make smoke-test`
+- **BEFORE pushing TS**: `bun test && bunx tsc --noEmit`
+- **BEFORE pushing Rust**: `cargo fmt && cargo clippy -- -D warnings && cargo test` — backend changes also need `cargo check --features coreml --no-default-features`
+- **Error handling**: human-readable messages (what, why, fix). Never swallow errors.
 
 ## Release Process
 
+CLI and engine versions are **decoupled**. See CLAUDE.md for full rationale.
+
+### CLI-only patch
+
 ```bash
-# 1. Bump version in package.json via PR, merge
-# 2. Verify locally
-make release
-# 3. Tag and push — CI builds binary + creates GitHub release
-git tag v0.8.0 && git push --tags
-# 4. Publish to npm after CI passes
+# 1. Bump ONLY package.json#version
+# 2. Verify
+make smoke-test
+# 3. PR, merge
+# 4. Publish
 npm publish --access public
+# 5. Marker release (-cli suffix skips build-engine)
+gh release create vX.Y.Z-cli --title "vX.Y.Z (CLI-only)" \
+  --notes "Engine: v<keshaEngine.version> (unchanged)."
 ```
 
-## Git Worktrees for Big Changes
-
-For multi-file features or refactors, use git worktrees to work in isolation:
+### Engine release
 
 ```bash
-git worktree add ../parakeet-cli-feature feature/my-feature
-cd ../parakeet-cli-feature
-# work, commit, push, open PR
-# when done:
-cd ../parakeet-cli
-git worktree remove ../parakeet-cli-feature
+# 1. Bump rust/Cargo.toml + Cargo.lock + package.json#keshaEngine.version
+# 2. PR, merge
+# 3. Tag → build-engine → draft release
+git tag vX.Y.Z && git push origin vX.Y.Z
+# 4. Publish draft
+gh release edit vX.Y.Z --draft=false
+# 5. Verify + npm publish
+make smoke-test && npm publish --access public
 ```
 
-Use worktrees when:
-- The change touches 5+ files
-- You need to keep main clean while iterating
-- Running long tasks (benchmarks, builds) without blocking the main checkout
+**Tag names are one-use** (immutable releases). Broken release → bump patch. Debug builds: `gh workflow run "🔨 Build Engine" --ref main`.
+
+## OpenClaw Plugin
+
+**How it actually works:** OpenClaw's `type: "cli"` audio runner spawns `kesha --format transcript {{MediaPath}}` and captures stdout. The `registerMediaUnderstandingProvider` path requires API keys (`requireApiKey()`) and silently fails for local CLI tools. The plugin registers a provider for discoverability only.
+
+Recommended config:
+```json
+{"type":"cli","command":"kesha","args":["--format","transcript","{{MediaPath}}"],"timeoutSeconds":15}
+```
+
+**Scanner:** regex-based, comments count. Never name trigger tokens in `openclaw-plugin.cjs`. Split the module specifier across `+`. Use `--force` to overwrite stale installs. `configPatch` is NOT a valid manifest field.
 
 ## Code Style
 
-- TypeScript strict mode, ESNext target
-- No build step — Bun runs `.ts` directly
-- Relative imports (`./models`, not `src/models`)
-- `console.error()` for progress/errors, `console.log()` for success messages
-- Follow existing patterns in the codebase
-- Tests use `import { describe, test, expect } from "bun:test"`
-
-## Dual Backend Design
-
-- **CoreML** (macOS arm64): Pre-built Swift binary at `~/.cache/parakeet/coreml/bin/parakeet-coreml`, invoked as subprocess
-- **ONNX** (cross-platform): Model files at `~/.cache/parakeet/v3/`, run in-process via onnxruntime-node
-- `parakeet install` auto-detects platform: CoreML on macOS arm64, ONNX elsewhere
-- CoreML install: downloads binary + model files (via `--download-only` flag)
-- Override with `--coreml` or `--onnx` flags
+- TypeScript: strict mode, ESNext, no build step
+- Relative imports (`./engine`, not `src/engine`)
+- `console.error()` for progress; `console.log()` for success (stdout = pipe-friendly)
+- Rust: `cargo fmt` + `cargo clippy -- -D warnings`
+- Tests: `import { describe, test, expect } from "bun:test"`
