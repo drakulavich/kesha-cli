@@ -7,6 +7,7 @@ import { downloadEngine } from "./engine-install";
 import { detectAudioLanguageEngine, detectTextLanguageEngine } from "./engine";
 import type { LangDetectResult } from "./engine";
 import { log } from "./log";
+import { say, SayError } from "./say";
 import { showStatus } from "./status";
 import { suggestCommand } from "./suggest-command";
 
@@ -82,6 +83,89 @@ export const installCommand = defineCommand({
     await performInstall(args["no-cache"], backend);
   },
 });
+
+export const sayCommand = defineCommand({
+  meta: {
+    name: "say",
+    description: "Synthesize speech from text (TTS). Writes WAV to stdout (or --out file).",
+  },
+  args: {
+    text: { type: "positional", required: false, description: "Text to speak (stdin if omitted)" },
+    voice: { type: "string", description: "Voice id, e.g. en-af_heart" },
+    lang: { type: "string", description: "espeak language code (default en-us)" },
+    out: { type: "string", description: "Write WAV to file instead of stdout" },
+    rate: { type: "string", description: "Speaking rate 0.5–2.0", default: "1.0" },
+    "list-voices": { type: "boolean", description: "List installed voices and exit" },
+  },
+  async run({ args }) {
+    const text = typeof args.text === "string" ? args.text : undefined;
+    const opts = {
+      text,
+      voice: typeof args.voice === "string" ? args.voice : undefined,
+      lang: typeof args.lang === "string" ? args.lang : undefined,
+      out: typeof args.out === "string" ? args.out : undefined,
+      rate: args.rate ? Number(args.rate) : undefined,
+    };
+
+    if (args["list-voices"]) {
+      // The engine prints the list directly — just relay its stdout + exit code.
+      const { getEngineBinPath } = await import("./engine");
+      const proc = Bun.spawn([getEngineBinPath(), "say", "--list-voices"], {
+        stdout: "inherit",
+        stderr: "inherit",
+      });
+      process.exit(await proc.exited);
+    }
+
+    try {
+      // If no text and no stdin, engine reads empty and exits 2. Pipe stdin through.
+      const wav = await sayCliPassthrough(opts, text);
+      if (!opts.out) {
+        process.stdout.write(wav);
+      }
+    } catch (err) {
+      if (err instanceof SayError) {
+        log.error(err.stderr.trim() || err.message);
+        process.exit(err.exitCode);
+      }
+      const message = err instanceof Error ? err.message : String(err);
+      log.error(message);
+      process.exit(4);
+    }
+  },
+});
+
+/**
+ * When the CLI user omits the positional text, they may be piping into stdin
+ * (e.g. `echo hi | kesha say > out.wav`). `say()` in src/say.ts already handles
+ * the stdin case, but we must not close stdin prematurely — forward the terminal's
+ * stdin to the engine. Currently `say()` only writes a provided string; for stdin
+ * piping we'd duplicate that here. For M1, require the text arg or stdin via pipe
+ * that the user set up on the engine directly; keep `say()` the primary path.
+ */
+async function sayCliPassthrough(
+  opts: Parameters<typeof say>[0],
+  inlineText: string | undefined,
+): Promise<Uint8Array> {
+  // If inline text given, use the normal say() helper.
+  if (inlineText !== undefined && inlineText.length > 0) {
+    return say(opts);
+  }
+  // Otherwise, read stdin in the CLI process, hand to engine via stdin.
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of Bun.stdin.stream()) {
+    chunks.push(chunk);
+  }
+  const total = chunks.reduce((n, c) => n + c.byteLength, 0);
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    merged.set(c, offset);
+    offset += c.byteLength;
+  }
+  const stdinText = new TextDecoder().decode(merged).trim();
+  return say({ ...opts, text: stdinText });
+}
 
 export const statusCommand = defineCommand({
   meta: {
@@ -190,7 +274,7 @@ export const mainCommand = defineCommand({
   },
 });
 
-const SUBCOMMANDS = ["install", "status"];
+const SUBCOMMANDS = ["install", "status", "say"];
 
 export async function runCli(rawArgs = process.argv.slice(2)): Promise<void> {
   const [firstArg, ...restArgs] = rawArgs;
@@ -202,6 +286,11 @@ export async function runCli(rawArgs = process.argv.slice(2)): Promise<void> {
 
   if (firstArg === "status") {
     await runMain(statusCommand, { rawArgs: restArgs });
+    return;
+  }
+
+  if (firstArg === "say") {
+    await runMain(sayCommand, { rawArgs: restArgs });
     return;
   }
 
