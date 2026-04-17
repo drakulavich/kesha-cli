@@ -16,6 +16,21 @@ fn capabilities_advertises_tts() {
 }
 
 #[test]
+fn install_has_tts_flag() {
+    let bin = env!("CARGO_BIN_EXE_kesha-engine");
+    let out = Command::new(bin)
+        .args(["install", "--help"])
+        .output()
+        .expect("run");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("--tts"),
+        "install --help missing --tts: {stdout}"
+    );
+}
+
+#[test]
 fn say_subcommand_exists() {
     let bin = env!("CARGO_BIN_EXE_kesha-engine");
     let out = Command::new(bin)

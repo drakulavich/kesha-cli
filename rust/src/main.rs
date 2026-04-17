@@ -44,6 +44,10 @@ enum Commands {
         /// Re-download even if cached
         #[arg(long)]
         no_cache: bool,
+        /// Also install Kokoro TTS models (~326MB). Requires `espeak-ng` on PATH.
+        #[cfg(feature = "tts")]
+        #[arg(long)]
+        tts: bool,
     },
     /// Synthesize speech from text (TTS)
     #[cfg(feature = "tts")]
@@ -75,6 +79,27 @@ enum Commands {
         #[arg(long = "voice-file", hide = true)]
         voice_file: Option<std::path::PathBuf>,
     },
+}
+
+/// Confirm espeak-ng is callable before downloading TTS models. Early failure
+/// beats a confusing runtime load error later. On macOS this requires
+/// `brew install espeak-ng`; Linux `apt install espeak-ng`; Windows `choco install espeak-ng`.
+#[cfg(feature = "tts")]
+fn ensure_espeak_available() -> anyhow::Result<()> {
+    use std::process::Command;
+    let check = Command::new("espeak-ng").arg("--version").output();
+    match check {
+        Ok(o) if o.status.success() => Ok(()),
+        _ => {
+            anyhow::bail!(
+                "espeak-ng not found on PATH.\n\
+                 Install it and retry:\n\
+                   macOS:   brew install espeak-ng\n\
+                   Linux:   apt install espeak-ng  (or your distro equivalent)\n\
+                   Windows: choco install espeak-ng"
+            )
+        }
+    }
 }
 
 /// Map a TTS error to the documented exit code for `kesha say`.
@@ -175,8 +200,18 @@ fn main() -> Result<()> {
             let result = text_lang::detect_text_language(&text)?;
             println!("{}", serde_json::to_string(&result)?);
         }
-        Some(Commands::Install { no_cache }) => {
+        Some(Commands::Install {
+            no_cache,
+            #[cfg(feature = "tts")]
+            tts,
+        }) => {
             models::install(no_cache)?;
+            #[cfg(feature = "tts")]
+            if tts {
+                ensure_espeak_available()?;
+                models::download_tts_kokoro(no_cache)?;
+                eprintln!("TTS models installed.");
+            }
             eprintln!("Install complete.");
         }
         #[cfg(feature = "tts")]
