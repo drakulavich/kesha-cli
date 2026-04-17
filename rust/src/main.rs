@@ -77,6 +77,82 @@ enum Commands {
     },
 }
 
+/// Map a TTS error to the documented exit code for `kesha say`.
+/// 1 = voice/model not installed, 2 = bad input, 4 = synthesis failure, 5 = text too long.
+#[cfg(feature = "tts")]
+fn exit_code_for_tts_err(e: &tts::TtsError) -> i32 {
+    match e {
+        tts::TtsError::VoiceNotInstalled(..) => 1,
+        tts::TtsError::EmptyText => 2,
+        tts::TtsError::TextTooLong { .. } => 5,
+        tts::TtsError::SynthesisFailed(_) => 4,
+    }
+}
+
+#[cfg(feature = "tts")]
+fn run_say(
+    text: Option<String>,
+    lang: String,
+    out: Option<std::path::PathBuf>,
+    rate: f32,
+    list_voices: bool,
+    model: Option<std::path::PathBuf>,
+    voice_file: Option<std::path::PathBuf>,
+) -> i32 {
+    use std::io::{Read, Write};
+
+    if list_voices {
+        println!("No voices installed. Run: kesha install --tts");
+        return 0;
+    }
+
+    let text_joined = match text {
+        Some(s) => s,
+        None => {
+            let mut buf = String::new();
+            if let Err(e) = std::io::stdin().read_to_string(&mut buf) {
+                eprintln!("error: failed to read stdin: {e}");
+                return 4;
+            }
+            buf.trim().to_string()
+        }
+    };
+
+    // M1: require explicit --model / --voice-file. Task 14 resolves from cache.
+    let Some(model) = model else {
+        eprintln!("error: --model required in M1");
+        return 2;
+    };
+    let Some(voice_file) = voice_file else {
+        eprintln!("error: --voice-file required in M1");
+        return 2;
+    };
+
+    let wav = match tts::say(tts::SayOptions {
+        text: &text_joined,
+        lang: &lang,
+        speed: rate,
+        model_path: &model,
+        voice_path: &voice_file,
+    }) {
+        Ok(w) => w,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return exit_code_for_tts_err(&e);
+        }
+    };
+
+    let write_result = match out {
+        Some(p) => std::fs::write(&p, &wav).map_err(|e| e.to_string()),
+        None => std::io::stdout().write_all(&wav).map_err(|e| e.to_string()),
+    };
+    if let Err(msg) = write_result {
+        eprintln!("error: write failed: {msg}");
+        return 4;
+    }
+    0
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -115,39 +191,15 @@ fn main() -> Result<()> {
             model,
             voice_file,
         }) => {
-            use std::io::{Read, Write};
-
-            if list_voices {
-                println!("No voices installed. Run: kesha install --tts");
-                return Ok(());
-            }
-
-            let text_joined = match text {
-                Some(s) => s,
-                None => {
-                    let mut buf = String::new();
-                    std::io::stdin().read_to_string(&mut buf)?;
-                    buf.trim().to_string()
-                }
-            };
-
-            // M1: require explicit --model / --voice-file. Task 14 resolves from cache.
-            let model = model.ok_or_else(|| anyhow::anyhow!("--model required in M1"))?;
-            let voice_file =
-                voice_file.ok_or_else(|| anyhow::anyhow!("--voice-file required in M1"))?;
-
-            let wav = tts::say(tts::SayOptions {
-                text: &text_joined,
-                lang: &lang,
-                speed: rate,
-                model_path: &model,
-                voice_path: &voice_file,
-            })?;
-
-            match out {
-                Some(p) => std::fs::write(&p, &wav)?,
-                None => std::io::stdout().write_all(&wav)?,
-            }
+            std::process::exit(run_say(
+                text,
+                lang,
+                out,
+                rate,
+                list_voices,
+                model,
+                voice_file,
+            ));
         }
         None => {
             eprintln!("Usage: kesha-engine <command>");

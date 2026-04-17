@@ -113,6 +113,88 @@ fn say_reads_stdin_when_no_positional() {
 }
 
 #[test]
+fn empty_text_exits_2() {
+    let bin = env!("CARGO_BIN_EXE_kesha-engine");
+    let out = Command::new(bin)
+        .args([
+            "say",
+            "",
+            "--model",
+            "/nonexistent",
+            "--voice-file",
+            "/nonexistent",
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2 for empty text\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn missing_model_flag_exits_2() {
+    let bin = env!("CARGO_BIN_EXE_kesha-engine");
+    let out = Command::new(bin).args(["say", "Hi"]).output().expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "expected exit 2 for missing --model\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn text_too_long_exits_5() {
+    let bin = env!("CARGO_BIN_EXE_kesha-engine");
+    let huge = "a".repeat(10_000);
+    let out = Command::new(bin)
+        .args([
+            "say",
+            &huge,
+            "--model",
+            "/nonexistent",
+            "--voice-file",
+            "/nonexistent",
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(5),
+        "expected exit 5 for too-long text\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn synthesis_failure_exits_4() {
+    // Missing model file at runtime -> SynthesisFailed -> exit 4
+    let bin = env!("CARGO_BIN_EXE_kesha-engine");
+    let voice_tmp = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(voice_tmp.path(), vec![0u8; 510 * 256 * 4]).unwrap();
+    let out = Command::new(bin)
+        .args([
+            "say",
+            "Hi",
+            "--model",
+            "/nonexistent-model",
+            "--voice-file",
+            voice_tmp.path().to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(4),
+        "expected exit 4 for synthesis failure\nstderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
 fn say_writes_to_file_with_out_flag() {
     let (model, voice) = match (std::env::var("KOKORO_MODEL"), std::env::var("KOKORO_VOICE")) {
         (Ok(m), Ok(v)) => (m, v),
