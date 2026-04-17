@@ -4,9 +4,19 @@
 
 **Goal:** Ship `kesha say "Hello"` on macOS/Linux/Windows using Kokoro-82M ONNX with a single English voice (`af_heart`), WAV-to-stdout, opt-in install. Validates the CLI contract, install flow, and cross-platform Rust build — zero FluidAudio, zero Silero, zero auto-routing. Those land in M2 and M3.
 
-**Architecture:** Extend existing `kesha-engine` Rust binary with a `say` subcommand. Text → espeak-ng (statically linked) → IPA phonemes → Kokoro tokenizer → Kokoro ONNX (via `ort`) → 24kHz mono f32 → WAV mux (`hound`) → stdout. TypeScript CLI adds a thin `say` subcommand that spawns the engine and pipes stdin/stdout. Models are downloaded opt-in via `kesha install --tts`.
+**Architecture:** Extend existing `kesha-engine` Rust binary with a `say` subcommand. Text → espeak-ng (dynamic link, system dep — see G2P decision below) → IPA phonemes → Kokoro tokenizer → Kokoro ONNX (via `ort`) → 24kHz mono f32 → WAV mux (`hound`) → stdout. TypeScript CLI adds a thin `say` subcommand that spawns the engine and pipes stdin/stdout. Models are downloaded opt-in via `kesha install --tts`.
 
 **Tech Stack:** Rust (ort 2.0-rc, ndarray, hound, espeakng-sys), TypeScript (Bun, citty), ONNX Runtime, Kokoro-82M v1.0 ONNX from `onnx-community/Kokoro-82M-v1.0-ONNX`. Testing: `cargo test` for Rust, `bun test` for TS, full CI matrix.
+
+**G2P decision (from Task 0.1 spike, 2026-04-16):**
+- Crate: `espeakng-sys = "0.3.0"` with feature `clang-runtime` (loads libclang at runtime so bindgen's build script doesn't need `@rpath/libclang.dylib`).
+- Linking: **dynamic** against system `libespeak-ng`. `espeakng-sys 0.3.0` has no vendored build; its `build.rs` is just `cargo:rustc-link-lib=espeak-ng`. Vendoring tracked in issue [#124](https://github.com/drakulavich/kesha-voice-kit/issues/124).
+- Runtime prerequisite: `espeak-ng` installed via the host package manager (`brew install espeak-ng` / `apt install espeak-ng` / `choco install espeak-ng`). `kesha install --tts` must detect it and fail loudly with the exact command if missing.
+- Generated-binding constants (bindgen-flattened from C enums): `espeak_AUDIO_OUTPUT_AUDIO_OUTPUT_SYNCHRONOUS`, `espeak_ERROR_EE_OK`, `espeakCHARS_UTF8`.
+- `espeak_TextToPhonemes` phonememode value: `0x02` (bits 0-3 select character set; 2 = IPA). Bits 4-7 select output destination (0 = return from function). Verified by diffing spike output against `espeak-ng --ipa -q "Hello, world"`.
+- `espeak_TextToPhonemes` returns only up to the next sentence terminator (comma, period). Callers must loop, advancing the `**text` pointer, until it returns null. Spike input "Hello, world" returned only `həlˈoʊ` for "Hello" before stopping at the comma — Task 4's implementation must handle this.
+- macOS build env: `LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib`, `RUSTFLAGS="-L /opt/homebrew/lib"`.
+- macOS runtime: `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` for dev, or `install_name_tool -change` fix-up in release binaries.
 
 **Testing discipline:** Every task follows Red/Green/Refactor. Every new module ships with both (a) unit tests that pin behavior and (b) an integration test path reached through the real CLI. No implementation-detail mocks. Tests resemble real usage (`echo ... | kesha say | file -` over `mock(KokoroSession)`).
 
