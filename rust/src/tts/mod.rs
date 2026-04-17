@@ -14,8 +14,6 @@ pub const MAX_TEXT_CHARS: usize = 5000;
 
 #[derive(Debug, thiserror::Error)]
 pub enum TtsError {
-    #[error("voice '{voice_id}' not installed. run: kesha install --tts")]
-    VoiceNotInstalled { voice_id: String },
     #[error("text is empty")]
     EmptyText,
     #[error("text exceeds {max} chars ({actual})")]

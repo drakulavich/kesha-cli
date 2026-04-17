@@ -26,7 +26,6 @@ pub struct ModelFile {
     pub rel_path: &'static str,
     pub url: &'static str,
     pub sha256: &'static str,
-    pub size_bytes: u64,
 }
 
 #[cfg(feature = "tts")]
@@ -36,13 +35,11 @@ pub fn kokoro_manifest() -> Vec<ModelFile> {
             rel_path: "models/kokoro-82m/model.onnx",
             url: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model.onnx",
             sha256: "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb",
-            size_bytes: 326_000_000,
         },
         ModelFile {
             rel_path: "models/kokoro-82m/voices/af_heart.bin",
             url: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/af_heart.bin",
             sha256: "d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b",
-            size_bytes: 522_240,
         },
     ]
 }
@@ -117,8 +114,7 @@ mod tts_tests {
         assert!(m.iter().any(|f| f.rel_path.ends_with("af_heart.bin")));
         for f in &m {
             assert_eq!(f.sha256.len(), 64, "{:?} sha256 not 64 hex chars", f);
-            assert!(f.size_bytes > 0, "{:?} missing size", f);
-            assert!(f.url.starts_with("https://"), "{:?} url not https", f);
+            assert!(f.url.starts_with("https://"), "{f:?} url not https");
         }
     }
 

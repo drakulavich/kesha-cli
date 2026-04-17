@@ -109,11 +109,11 @@ fn ensure_espeak_available() -> anyhow::Result<()> {
 }
 
 /// Map a TTS error to the documented exit code for `kesha say`.
-/// 1 = voice/model not installed, 2 = bad input, 4 = synthesis failure, 5 = text too long.
+/// 2 = bad input, 4 = synthesis failure, 5 = text too long.
+/// (Voice-not-installed exits 1 directly from the resolver path.)
 #[cfg(feature = "tts")]
 fn exit_code_for_tts_err(e: &tts::TtsError) -> i32 {
     match e {
-        tts::TtsError::VoiceNotInstalled { .. } => 1,
         tts::TtsError::EmptyText => 2,
         tts::TtsError::TextTooLong { .. } => 5,
         tts::TtsError::SynthesisFailed(_) => 4,
