@@ -1,7 +1,11 @@
 import { getEngineBinPath, isEngineInstalled } from "./engine";
 
 export interface SayOptions {
-  /** Text to synthesize. If omitted, stdin is expected to contain the text. */
+  /**
+   * Text to synthesize. Required for programmatic callers — `say()` does not
+   * forward the host process's stdin. The CLI (`kesha say` with no positional
+   * arg) handles stdin separately before invoking `say()`.
+   */
   text?: string;
   /** Voice id, e.g. `en-af_heart`. Defaults to engine default. */
   voice?: string;

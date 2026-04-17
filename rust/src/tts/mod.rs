@@ -34,6 +34,10 @@ pub struct SayOptions<'a> {
 }
 
 /// Synthesize speech and return WAV bytes (24kHz mono float32).
+///
+/// Loads the Kokoro ONNX session fresh on each call (~200-800ms cold). Fine for
+/// one-shot CLI usage; callers that synthesize in a loop should hold a [`kokoro::Kokoro`]
+/// instance directly and drive it via [`kokoro::Kokoro::infer`].
 pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
     if opts.text.is_empty() {
         return Err(TtsError::EmptyText);
