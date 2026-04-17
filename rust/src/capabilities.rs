@@ -14,6 +14,9 @@ pub fn get_capabilities() -> Capabilities {
     #[cfg(target_os = "macos")]
     features.push("detect-text-lang");
 
+    #[cfg(feature = "tts")]
+    features.push("tts");
+
     Capabilities {
         protocol_version: 2,
         backend: backend_name(),
