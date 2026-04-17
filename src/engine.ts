@@ -7,10 +7,15 @@ export interface LangDetectResult {
   confidence: number;
 }
 
-const ENGINE_BIN_PATH = join(homedir(), ".cache", "kesha", "engine", "bin", "kesha-engine");
+const DEFAULT_ENGINE_BIN_PATH = join(homedir(), ".cache", "kesha", "engine", "bin", "kesha-engine");
 
+/**
+ * Path to the `kesha-engine` binary. Defaults to the install location under
+ * `~/.cache/kesha/engine/bin/`. The `KESHA_ENGINE_BIN` env var overrides — useful
+ * for running against a freshly-built engine during development or in e2e tests.
+ */
 export function getEngineBinPath(): string {
-  return ENGINE_BIN_PATH;
+  return process.env.KESHA_ENGINE_BIN ?? DEFAULT_ENGINE_BIN_PATH;
 }
 
 export function isEngineInstalled(): boolean {
