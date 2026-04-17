@@ -115,19 +115,42 @@ fn exit_code_for_tts_err(e: &tts::TtsError) -> i32 {
 }
 
 #[cfg(feature = "tts")]
+#[allow(clippy::too_many_arguments)]
 fn run_say(
     text: Option<String>,
-    lang: String,
+    voice_id: Option<String>,
+    lang_override: String,
+    lang_was_default: bool,
     out: Option<std::path::PathBuf>,
     rate: f32,
     list_voices: bool,
-    model: Option<std::path::PathBuf>,
-    voice_file: Option<std::path::PathBuf>,
+    model_override: Option<std::path::PathBuf>,
+    voice_file_override: Option<std::path::PathBuf>,
 ) -> i32 {
     use std::io::{Read, Write};
 
     if list_voices {
-        println!("No voices installed. Run: kesha install --tts");
+        let voices_dir = models::cache_dir().join("models/kokoro-82m/voices");
+        let names: Vec<String> = std::fs::read_dir(&voices_dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter_map(|e| {
+                let p = e.path();
+                if p.extension().and_then(|s| s.to_str()) == Some("bin") {
+                    p.file_stem().map(|s| s.to_string_lossy().into_owned())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if names.is_empty() {
+            println!("No voices installed. Run: kesha install --tts");
+        } else {
+            for name in names {
+                println!("en-{name}");
+            }
+        }
         return 0;
     }
 
@@ -143,22 +166,38 @@ fn run_say(
         }
     };
 
-    // M1: require explicit --model / --voice-file. Task 14 resolves from cache.
-    let Some(model) = model else {
-        eprintln!("error: --model required in M1");
-        return 2;
-    };
-    let Some(voice_file) = voice_file else {
-        eprintln!("error: --voice-file required in M1");
-        return 2;
+    // Resolve model + voice file: prefer explicit overrides (testing), else cache.
+    let (model_path, voice_path, espeak_lang) = match (model_override, voice_file_override) {
+        (Some(m), Some(v)) => (m, v, lang_override.clone()),
+        (Some(_), None) | (None, Some(_)) => {
+            eprintln!("error: pass both --model and --voice-file or neither");
+            return 2;
+        }
+        (None, None) => {
+            let id = voice_id.as_deref().unwrap_or(tts::voices::DEFAULT_VOICE_ID);
+            match tts::voices::resolve_voice(&models::cache_dir(), id) {
+                Ok(r) => {
+                    let lang = if lang_was_default {
+                        r.espeak_lang.to_string()
+                    } else {
+                        lang_override.clone()
+                    };
+                    (r.model_path, r.voice_path, lang)
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return 1;
+                }
+            }
+        }
     };
 
     let wav = match tts::say(tts::SayOptions {
         text: &text_joined,
-        lang: &lang,
+        lang: &espeak_lang,
         speed: rate,
-        model_path: &model,
-        voice_path: &voice_file,
+        model_path: &model_path,
+        voice_path: &voice_path,
     }) {
         Ok(w) => w,
         Err(e) => {
@@ -217,7 +256,7 @@ fn main() -> Result<()> {
         #[cfg(feature = "tts")]
         Some(Commands::Say {
             text,
-            voice: _voice,
+            voice,
             lang,
             out,
             format: _format,
@@ -226,9 +265,12 @@ fn main() -> Result<()> {
             model,
             voice_file,
         }) => {
+            let lang_was_default = lang == "en-us";
             std::process::exit(run_say(
                 text,
+                voice,
                 lang,
+                lang_was_default,
                 out,
                 rate,
                 list_voices,

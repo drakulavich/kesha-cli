@@ -37,6 +37,49 @@ pub fn select_style(voice: &[f32], token_count: usize) -> &[f32] {
     &voice[row * VOICE_COLS..(row + 1) * VOICE_COLS]
 }
 
+/// Default voice id used when neither `--voice` nor auto-routing resolves one.
+pub const DEFAULT_VOICE_ID: &str = "en-af_heart";
+
+/// Resolved paths + language for a given voice id, looked up against the cache.
+#[derive(Debug)]
+pub struct ResolvedVoice {
+    pub voice_path: std::path::PathBuf,
+    pub model_path: std::path::PathBuf,
+    pub espeak_lang: &'static str,
+}
+
+/// Parse a voice id like `en-af_heart` into espeak language + filesystem paths.
+/// Returns an error if the voice is not installed at `<cache>/models/kokoro-82m/voices/<name>.bin`.
+///
+/// M1 only supports English (Kokoro EN voices). Non-`en-*` ids are rejected.
+pub fn resolve_voice(cache_dir: &Path, voice_id: &str) -> anyhow::Result<ResolvedVoice> {
+    let (lang, name) = voice_id.split_once('-').ok_or_else(|| {
+        anyhow::anyhow!("voice id must be in 'lang-name' form (got '{voice_id}')")
+    })?;
+    let espeak_lang: &'static str = match lang {
+        "en" => "en-us",
+        other => anyhow::bail!("language '{other}' not supported in M1 (use 'en-*')"),
+    };
+    let voice_path = cache_dir
+        .join("models/kokoro-82m/voices")
+        .join(format!("{name}.bin"));
+    let model_path = cache_dir.join("models/kokoro-82m/model.onnx");
+    if !voice_path.exists() {
+        anyhow::bail!("voice '{voice_id}' not installed. run: kesha install --tts");
+    }
+    if !model_path.exists() {
+        anyhow::bail!(
+            "kokoro model not installed at {}. run: kesha install --tts",
+            model_path.display()
+        );
+    }
+    Ok(ResolvedVoice {
+        voice_path,
+        model_path,
+        espeak_lang,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,5 +132,58 @@ mod tests {
         let s = select_style(&voice, 8);
         assert_eq!(s[0], 7.0);
         assert_eq!(s[VOICE_COLS - 1], 7.0);
+    }
+
+    fn populate_cache(cache: &Path) {
+        let voices = cache.join("models/kokoro-82m/voices");
+        std::fs::create_dir_all(&voices).unwrap();
+        std::fs::write(voices.join("af_heart.bin"), vec![0u8; VOICE_FILE_BYTES]).unwrap();
+        std::fs::write(cache.join("models/kokoro-82m/model.onnx"), b"dummy").unwrap();
+    }
+
+    #[test]
+    fn resolve_installed_voice() {
+        let tmp = tempfile::tempdir().unwrap();
+        populate_cache(tmp.path());
+        let r = resolve_voice(tmp.path(), "en-af_heart").unwrap();
+        assert!(r.voice_path.ends_with("af_heart.bin"));
+        assert!(r.model_path.ends_with("model.onnx"));
+        assert_eq!(r.espeak_lang, "en-us");
+    }
+
+    #[test]
+    fn resolve_missing_voice_errors_with_hint() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Cache exists but voice does not
+        let err = resolve_voice(tmp.path(), "en-af_heart").unwrap_err();
+        assert!(err.to_string().contains("install --tts"), "msg: {err}");
+    }
+
+    #[test]
+    fn resolve_missing_model_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Voice present but model missing
+        let voices = tmp.path().join("models/kokoro-82m/voices");
+        std::fs::create_dir_all(&voices).unwrap();
+        std::fs::write(voices.join("af_heart.bin"), vec![0u8; VOICE_FILE_BYTES]).unwrap();
+        let err = resolve_voice(tmp.path(), "en-af_heart").unwrap_err();
+        assert!(err.to_string().contains("install --tts"), "msg: {err}");
+    }
+
+    #[test]
+    fn resolve_bad_id_format() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = resolve_voice(tmp.path(), "gibberish").unwrap_err();
+        assert!(err.to_string().contains("lang-name"));
+    }
+
+    #[test]
+    fn resolve_unsupported_language() {
+        let tmp = tempfile::tempdir().unwrap();
+        let err = resolve_voice(tmp.path(), "ru-something").unwrap_err();
+        assert!(
+            err.to_string().contains("not supported in M1"),
+            "msg: {err}"
+        );
     }
 }

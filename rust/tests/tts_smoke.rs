@@ -150,14 +150,92 @@ fn empty_text_exits_2() {
 }
 
 #[test]
-fn missing_model_flag_exits_2() {
+fn missing_voice_in_cache_exits_1_with_install_hint() {
+    let tmp = tempfile::tempdir().unwrap();
     let bin = env!("CARGO_BIN_EXE_kesha-engine");
-    let out = Command::new(bin).args(["say", "Hi"]).output().expect("run");
+    let out = Command::new(bin)
+        .env("KESHA_CACHE_DIR", tmp.path())
+        .args(["say", "Hi"])
+        .output()
+        .expect("run");
     assert_eq!(
         out.status.code(),
-        Some(2),
-        "expected exit 2 for missing --model\nstderr: {}",
+        Some(1),
+        "expected exit 1 for missing voice\nstderr: {}",
         String::from_utf8_lossy(&out.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("install --tts"),
+        "stderr missing install hint: {stderr}"
+    );
+}
+
+#[test]
+fn resolves_from_cache_when_installed() {
+    let (model, voice) = match (std::env::var("KOKORO_MODEL"), std::env::var("KOKORO_VOICE")) {
+        (Ok(m), Ok(v)) => (m, v),
+        _ => {
+            eprintln!("skipping: set KOKORO_MODEL + KOKORO_VOICE");
+            return;
+        }
+    };
+    // Build a temp cache dir that mirrors the real layout via symlinks.
+    let tmp = tempfile::tempdir().unwrap();
+    let voices_dir = tmp.path().join("models/kokoro-82m/voices");
+    std::fs::create_dir_all(&voices_dir).unwrap();
+    std::os::unix::fs::symlink(&model, tmp.path().join("models/kokoro-82m/model.onnx")).unwrap();
+    std::os::unix::fs::symlink(&voice, voices_dir.join("af_heart.bin")).unwrap();
+
+    let bin = env!("CARGO_BIN_EXE_kesha-engine");
+    let out = Command::new(bin)
+        .env("KESHA_CACHE_DIR", tmp.path())
+        .env("DYLD_FALLBACK_LIBRARY_PATH", "/opt/homebrew/lib")
+        .args(["say", "Hello"])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(&out.stdout[..4], b"RIFF");
+}
+
+#[test]
+fn list_voices_empty_on_fresh_cache() {
+    let tmp = tempfile::tempdir().unwrap();
+    let bin = env!("CARGO_BIN_EXE_kesha-engine");
+    let out = Command::new(bin)
+        .env("KESHA_CACHE_DIR", tmp.path())
+        .args(["say", "--list-voices"])
+        .output()
+        .expect("run");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("install --tts"),
+        "expected install hint, got: {stdout}"
+    );
+}
+
+#[test]
+fn list_voices_shows_installed() {
+    let tmp = tempfile::tempdir().unwrap();
+    let voices_dir = tmp.path().join("models/kokoro-82m/voices");
+    std::fs::create_dir_all(&voices_dir).unwrap();
+    std::fs::write(voices_dir.join("af_heart.bin"), b"").unwrap();
+    let bin = env!("CARGO_BIN_EXE_kesha-engine");
+    let out = Command::new(bin)
+        .env("KESHA_CACHE_DIR", tmp.path())
+        .args(["say", "--list-voices"])
+        .output()
+        .expect("run");
+    assert!(out.status.success());
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("en-af_heart"),
+        "expected en-af_heart, got: {stdout}"
     );
 }
 
