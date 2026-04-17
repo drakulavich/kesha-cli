@@ -19,7 +19,39 @@ const LANG_ID_FILES: &[&str] = &[
     "labels.json",
 ];
 
-fn cache_dir() -> PathBuf {
+/// A file in a model manifest. SHA256 is optional for legacy models; new
+/// TTS downloads verify it.
+#[derive(Debug, Clone)]
+pub struct ModelFile {
+    pub rel_path: &'static str,
+    pub url: &'static str,
+    pub sha256: &'static str,
+    pub size_bytes: u64,
+}
+
+/// Kokoro model files. SHA256 values captured by Task 0.2 spike on 2026-04-16.
+#[cfg(feature = "tts")]
+pub fn kokoro_manifest() -> Vec<ModelFile> {
+    vec![
+        ModelFile {
+            rel_path: "models/kokoro-82m/model.onnx",
+            url: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/onnx/model.onnx",
+            sha256: "8fbea51ea711f2af382e88c833d9e288c6dc82ce5e98421ea61c058ce21a34cb",
+            size_bytes: 326_000_000,
+        },
+        ModelFile {
+            rel_path: "models/kokoro-82m/voices/af_heart.bin",
+            url: "https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/af_heart.bin",
+            sha256: "d583ccff3cdca2f7fae535cb998ac07e9fcb90f09737b9a41fa2734ec44a8f0b",
+            size_bytes: 522_240,
+        },
+    ]
+}
+
+pub fn cache_dir() -> PathBuf {
+    if let Ok(p) = std::env::var("KESHA_CACHE_DIR") {
+        return PathBuf::from(p);
+    }
     dirs::home_dir()
         .expect("cannot determine home directory")
         .join(".cache")
@@ -75,6 +107,59 @@ pub fn install(no_cache: bool) -> Result<()> {
     Ok(())
 }
 
+#[cfg(all(test, feature = "tts"))]
+mod tts_tests {
+    use super::*;
+
+    #[test]
+    fn kokoro_manifest_has_expected_files() {
+        let m = kokoro_manifest();
+        assert!(m.iter().any(|f| f.rel_path.ends_with("model.onnx")));
+        assert!(m.iter().any(|f| f.rel_path.ends_with("af_heart.bin")));
+        for f in &m {
+            assert_eq!(f.sha256.len(), 64, "{:?} sha256 not 64 hex chars", f);
+            assert!(f.size_bytes > 0, "{:?} missing size", f);
+            assert!(f.url.starts_with("https://"), "{:?} url not https", f);
+        }
+    }
+
+    #[test]
+    fn cache_dir_honors_env_var() {
+        let guard = EnvGuard::set("KESHA_CACHE_DIR", "/tmp/kesha-test-xyz");
+        assert_eq!(cache_dir(), PathBuf::from("/tmp/kesha-test-xyz"));
+        drop(guard);
+    }
+
+    /// Restores the env var to its original value on drop.
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, val: &str) -> Self {
+            let original = std::env::var(key).ok();
+            unsafe {
+                std::env::set_var(key, val);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(v) => unsafe {
+                    std::env::set_var(self.key, v);
+                },
+                None => unsafe {
+                    std::env::remove_var(self.key);
+                },
+            }
+        }
+    }
+}
+
 fn download_hf_files(repo: &str, files: &[&str], dest_dir: &str) -> Result<()> {
     fs::create_dir_all(dest_dir)?;
     for file in files {
@@ -92,6 +177,54 @@ fn download_hf_files(repo: &str, files: &[&str], dest_dir: &str) -> Result<()> {
         io::copy(&mut reader, &mut out)?;
     }
     Ok(())
+}
+
+/// Kokoro TTS install. Downloads model.onnx + af_heart voice, verifies SHA256.
+#[cfg(feature = "tts")]
+pub fn download_tts_kokoro(no_cache: bool) -> Result<()> {
+    let cache = cache_dir();
+    for f in kokoro_manifest() {
+        let target = cache.join(f.rel_path);
+        if !no_cache && target.exists() && verify_sha256(&target, f.sha256)? {
+            eprintln!("OK  {} (cached)", f.rel_path);
+            continue;
+        }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        eprintln!("GET {}", f.rel_path);
+        let response = ureq::get(f.url)
+            .call()
+            .with_context(|| format!("download {}", f.rel_path))?;
+        let mut reader = response.into_body().into_reader();
+        let mut out =
+            fs::File::create(&target).with_context(|| format!("create {}", target.display()))?;
+        io::copy(&mut reader, &mut out)?;
+        drop(out);
+        if !verify_sha256(&target, f.sha256)? {
+            anyhow::bail!("sha256 mismatch for {}", f.rel_path);
+        }
+        eprintln!("OK  {}", f.rel_path);
+    }
+    Ok(())
+}
+
+/// Compute SHA256 via the `shasum` command; returns true on match.
+/// Simple shell-out keeps us out of a crypto crate for one verification call.
+#[cfg(feature = "tts")]
+fn verify_sha256(path: &Path, expected: &str) -> Result<bool> {
+    use std::process::Command;
+    let out = Command::new("shasum")
+        .args(["-a", "256"])
+        .arg(path)
+        .output()
+        .context("shasum command failed (install via `brew install coreutils` or similar)")?;
+    if !out.status.success() {
+        anyhow::bail!("shasum exited non-zero for {}", path.display());
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let actual = stdout.split_whitespace().next().unwrap_or("");
+    Ok(actual.eq_ignore_ascii_case(expected))
 }
 
 fn cleanup_legacy() {
