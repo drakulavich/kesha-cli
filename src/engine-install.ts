@@ -17,7 +17,16 @@ function getEngineBinaryName(): string {
   throw new Error(`Unsupported platform: ${platform} ${arch}`);
 }
 
-export async function downloadEngine(noCache = false, backend?: string): Promise<string> {
+export interface InstallOptions {
+  /** Also install Kokoro TTS models. Requires espeak-ng on PATH. */
+  tts?: boolean;
+}
+
+export async function downloadEngine(
+  noCache = false,
+  backend?: string,
+  options: InstallOptions = {},
+): Promise<string> {
   const binPath = getEngineBinPath();
 
   if (!noCache && existsSync(binPath)) {
@@ -68,7 +77,11 @@ export async function downloadEngine(noCache = false, backend?: string): Promise
   }
 
   log.progress("Installing models...");
-  const installArgs = ["install", ...(noCache ? ["--no-cache"] : [])];
+  const installArgs = [
+    "install",
+    ...(noCache ? ["--no-cache"] : []),
+    ...(options.tts ? ["--tts"] : []),
+  ];
   const proc = Bun.spawnSync([binPath, ...installArgs], {
     stdout: "pipe",
     stderr: "pipe",

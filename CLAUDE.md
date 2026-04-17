@@ -55,9 +55,19 @@ GitHub's immutable-releases permanently reserves tag names after publish. **Brok
 ### VERIFY BEFORE PUSHING
 
 - `bun test && bunx tsc --noEmit` before every push
-- Rust changes: `cd rust && cargo fmt && cargo clippy -- -D warnings`
+- Rust changes: `cd rust && cargo fmt && cargo clippy --all-targets -- -D warnings`
+  (`--all-targets` is required — otherwise test-only dead code escapes to CI)
 - Backend module changes: also `cargo check --features coreml --no-default-features`
 - Do NOT push broken code
+
+**Why `--all-targets` matters:** CI's ubuntu job runs clippy; the macOS jobs run only `cargo test`. Without `--all-targets`, local clippy misses dead code in `#[cfg(test)]` blocks and tests — which then breaks CI after push. (Lesson: #125 M1 landed a dead enum variant + struct field that passed on macOS but failed ubuntu.)
+
+### NO SPECULATIVE FIELDS OR ENUM VARIANTS
+
+Don't add struct fields, enum variants, or constants "for later." Clippy's `dead_code` lint is a hard error under `-D warnings`, so any unused public item will fail CI.
+
+- **Fix, don't suppress:** delete the unused item. Add `#[allow(dead_code)]` only with a justification in the comment.
+- If something needs to exist but isn't wired up yet, wire it up OR leave a `todo!()` call that exercises the variant.
 
 ### ERROR HANDLING
 
@@ -187,7 +197,7 @@ const text = await transcribe("audio.ogg");
 - **TypeScript**: Strict mode, ESNext target, Bun runs `.ts` directly
 - **Imports**: Relative paths (`./engine`, not `src/engine`)
 - **Output**: `console.error()` for progress/errors, `console.log()` for success (stdout stays pipe-friendly)
-- **Rust**: `cargo fmt` + `cargo clippy -- -D warnings`
+- **Rust**: `cargo fmt` + `cargo clippy --all-targets -- -D warnings`
 
 ## CI/CD
 
@@ -202,3 +212,19 @@ const text = await transcribe("audio.ogg");
 - **CoreML engine**: macOS 14+, Apple Silicon (arm64)
 - **ONNX engine**: macOS, Linux, Windows
 - `ffmpeg` is **not required** — the Rust engine uses symphonia + rubato
+- **TTS**: `espeak-ng` on PATH (`brew install espeak-ng` / `apt install espeak-ng` / `choco install espeak-ng`). Vendoring tracked in [#124](https://github.com/drakulavich/kesha-voice-kit/issues/124).
+
+## TTS
+
+Text-to-speech via Kokoro-82M (English only). Opt-in via `kesha install --tts`.
+
+- TTS models are **never auto-downloaded** — same rule as ASR. `kesha say` fails loudly with a `kesha install --tts` hint when models are missing.
+- `kesha say` writes WAV (24 kHz mono f32) to stdout unless `--out` is given. Stderr is progress/errors only.
+- G2P uses the `espeakng-sys` crate, dynamically linked against the system `libespeak-ng`.
+- Kokoro ONNX interface: `input_ids` (int64 `[1,N]`), `style` (f32 `[1,256]` — rank-2), `speed` (f32 `[1]`). Output tensor name is `"waveform"`. Voice file is 510 rows × 256 cols.
+- `KESHA_ENGINE_BIN` — override the default engine-binary path (useful when iterating on `rust/target/release/kesha-engine`).
+- `KESHA_CACHE_DIR` — isolated test cache.
+- macOS dev runtime: `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib`. Release binaries fix up via `install_name_tool`.
+- macOS build env: `LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib`, `RUSTFLAGS="-L /opt/homebrew/lib"`.
+
+Russian (Silero) and auto-routing via `NLLanguageRecognizer` are future milestones. See `docs/superpowers/specs/2026-04-16-bidirectional-voice-design.md`.

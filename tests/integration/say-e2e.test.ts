@@ -1,0 +1,67 @@
+import { describe, it, expect, beforeAll } from "bun:test";
+import { spawn } from "bun";
+import { existsSync, mkdirSync, symlinkSync } from "fs";
+
+const CLI_PATH = new URL("../../bin/kesha.js", import.meta.url).pathname;
+
+/**
+ * End-to-end: run the full `kesha say` CLI with a populated cache that points
+ * at the spike-downloaded Kokoro model + af_heart voice. Skipped if the spike
+ * artifacts are missing (set up with `cd rust/spike-kokoro && ...` from Task 0.2).
+ */
+const SPIKE_MODEL = process.env.KOKORO_MODEL ?? "/tmp/kokoro-spike/model.onnx";
+const SPIKE_VOICE = process.env.KOKORO_VOICE ?? "/tmp/kokoro-spike/af_heart.bin";
+const SPIKE_AVAILABLE = existsSync(SPIKE_MODEL) && existsSync(SPIKE_VOICE);
+
+const CACHE_DIR = `/tmp/kesha-e2e-${Date.now()}`;
+const MODEL_DIR = `${CACHE_DIR}/models/kokoro-82m`;
+const BUILT_ENGINE = `${new URL("../..", import.meta.url).pathname}rust/target/release/kesha-engine`;
+
+beforeAll(() => {
+  if (!SPIKE_AVAILABLE) return;
+  mkdirSync(`${MODEL_DIR}/voices`, { recursive: true });
+  symlinkSync(SPIKE_MODEL, `${MODEL_DIR}/model.onnx`);
+  symlinkSync(SPIKE_VOICE, `${MODEL_DIR}/voices/af_heart.bin`);
+});
+
+function spawnCli(args: string[]) {
+  return spawn(["bun", CLI_PATH, ...args], {
+    env: {
+      ...process.env,
+      KESHA_CACHE_DIR: CACHE_DIR,
+      KESHA_ENGINE_BIN: BUILT_ENGINE,
+      DYLD_FALLBACK_LIBRARY_PATH: "/opt/homebrew/lib",
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+}
+
+describe("kesha say e2e", () => {
+  it.skipIf(!SPIKE_AVAILABLE)(
+    "produces valid WAV for 'Hello' via full CLI pipeline",
+    async () => {
+      const proc = spawnCli(["say", "Hello"]);
+      const exit = await proc.exited;
+      const stderr = await new Response(proc.stderr).text();
+      expect(exit).toBe(0);
+      const stdoutBuf = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+      expect(new TextDecoder().decode(stdoutBuf.slice(0, 4))).toBe("RIFF");
+      expect(stdoutBuf.length).toBeGreaterThan(10_000);
+      expect(stderr).not.toMatch(/panic|abort|thread '.+' panicked/);
+    },
+    60_000,
+  );
+
+  it.skipIf(!SPIKE_AVAILABLE)(
+    "writes WAV to --out file",
+    async () => {
+      const outPath = `/tmp/kesha-e2e-out-${Date.now()}.wav`;
+      const proc = spawnCli(["say", "Hi", "--out", outPath]);
+      expect(await proc.exited).toBe(0);
+      const bytes = await Bun.file(outPath).arrayBuffer();
+      expect(new TextDecoder().decode(new Uint8Array(bytes, 0, 4))).toBe("RIFF");
+    },
+    60_000,
+  );
+});

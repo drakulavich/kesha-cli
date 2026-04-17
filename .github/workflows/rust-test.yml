@@ -7,10 +7,12 @@ on:
 jobs:
   test:
     strategy:
+      fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest, windows-latest]
+        os: [macos-14, ubuntu-latest]  # Windows follows after M2 (choco install espeak-ng path verification)
     runs-on: ${{ matrix.os }}
     env:
+      KOKORO_CACHE: ${{ github.workspace }}/.kokoro-spike
       MACOSX_DEPLOYMENT_TARGET: "14.0"
     steps:
       - uses: actions/checkout@v6
@@ -23,14 +25,37 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-      - name: Run tests
-        run: cd rust && cargo test
+
+      - name: Install espeak-ng (macOS)
+        if: runner.os == 'macOS'
+        run: brew install espeak-ng
+
+      - name: Install espeak-ng (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y espeak-ng libespeak-ng-dev
+
+      - name: Cache Kokoro spike models
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.KOKORO_CACHE }}
+          key: kokoro-spike-v1-${{ runner.os }}
+
+      - name: Download Kokoro model (if cache miss)
+        shell: bash
+        run: bash rust/ci/download-kokoro.sh "$KOKORO_CACHE"
+
+      - name: Run tests (with real Kokoro + espeak)
+        shell: bash
+        run: bash rust/ci/run-cargo-test.sh "$KOKORO_CACHE" "${{ runner.os }}"
+
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'
         run: cd rust && cargo fmt -- --check
+
       - name: Clippy
         if: matrix.os == 'ubuntu-latest'
-        run: cd rust && cargo clippy -- -D warnings
+        run: bash rust/ci/run-clippy.sh "${{ runner.os }}"
+
       # Guard against coreml-backend rot: v1.0.0 shipped with broken
       # coreml code because no PR CI job ever tried to build it.
       - name: Check coreml feature
