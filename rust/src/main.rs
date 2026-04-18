@@ -44,7 +44,7 @@ enum Commands {
         /// Re-download even if cached
         #[arg(long)]
         no_cache: bool,
-        /// Also install Kokoro TTS models (~326MB). Requires `espeak-ng` on PATH.
+        /// Also install TTS models (Kokoro EN + Piper RU, ~390MB). Requires `espeak-ng` on PATH.
         #[cfg(feature = "tts")]
         #[arg(long)]
         tts: bool,
@@ -108,6 +108,45 @@ fn ensure_espeak_available() -> anyhow::Result<()> {
     }
 }
 
+#[cfg(feature = "tts")]
+fn list_kokoro_voices(cache: &std::path::Path) -> Vec<String> {
+    let dir = cache.join("models/kokoro-82m/voices");
+    std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) == Some("bin") {
+                p.file_stem().map(|s| format!("en-{}", s.to_string_lossy()))
+            } else {
+                None
+            }
+        })
+        .collect()
+}
+
+#[cfg(feature = "tts")]
+fn list_piper_ru_voices(cache: &std::path::Path) -> Vec<String> {
+    // Piper RU files follow `ru_RU-<name>-<quality>.onnx`; report just the <name>.
+    let dir = cache.join("models/piper-ru");
+    std::fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            let p = e.path();
+            if p.extension().and_then(|s| s.to_str()) != Some("onnx") {
+                return None;
+            }
+            let stem = p.file_stem()?.to_string_lossy().into_owned();
+            // stem like "ru_RU-denis-medium" → "denis"
+            let name = stem.strip_prefix("ru_RU-")?.split('-').next()?;
+            Some(format!("ru-{name}"))
+        })
+        .collect()
+}
+
 /// Map a TTS error to the documented exit code for `kesha say`.
 /// 2 = bad input, 4 = synthesis failure, 5 = text too long.
 /// (Voice-not-installed exits 1 directly from the resolver path.)
@@ -125,25 +164,17 @@ fn run_say(a: SayArgs) -> i32 {
     use std::io::{Read, Write};
 
     if a.list_voices {
-        let voices_dir = models::cache_dir().join("models/kokoro-82m/voices");
-        let names: Vec<String> = std::fs::read_dir(&voices_dir)
+        let cache = models::cache_dir();
+        let mut voice_ids: Vec<String> = list_kokoro_voices(&cache)
             .into_iter()
-            .flatten()
-            .filter_map(|e| e.ok())
-            .filter_map(|e| {
-                let p = e.path();
-                if p.extension().and_then(|s| s.to_str()) == Some("bin") {
-                    p.file_stem().map(|s| s.to_string_lossy().into_owned())
-                } else {
-                    None
-                }
-            })
+            .chain(list_piper_ru_voices(&cache))
             .collect();
-        if names.is_empty() {
+        voice_ids.sort();
+        if voice_ids.is_empty() {
             println!("No voices installed. Run: kesha install --tts");
         } else {
-            for name in names {
-                println!("en-{name}");
+            for id in voice_ids {
+                println!("{id}");
             }
         }
         return 0;

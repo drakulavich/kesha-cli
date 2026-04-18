@@ -98,7 +98,7 @@ export const installCommand = defineCommand({
     },
     tts: {
       type: "boolean",
-      description: "Also install Kokoro TTS models (~326MB, requires espeak-ng on PATH)",
+      description: "Also install TTS models (Kokoro EN + Piper RU, ~390MB, requires espeak-ng on PATH)",
       default: false,
     },
   },
