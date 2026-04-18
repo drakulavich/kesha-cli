@@ -44,9 +44,17 @@ Two interfaces: the CLI and a programmatic API exported from `@drakulavich/kesha
 1. Bump `rust/Cargo.toml`, `rust/Cargo.lock` (via `cargo check`), and `package.json#keshaEngine.version` in lockstep. Usually bump `package.json#version` too.
 2. Merge to main.
 3. `git tag vX.Y.Z && git push origin vX.Y.Z` — triggers `build-engine.yml`.
-4. Publish the draft: `gh release edit vX.Y.Z --draft=false`.
-5. `make smoke-test` locally. Do NOT publish if smoke tests fail.
-6. `npm publish --access public`.
+4. **Write release notes before publishing.** `build-engine.yml` creates a draft with EMPTY body via `softprops/action-gh-release`. Author the notes now:
+   ```bash
+   gh release edit vX.Y.Z --notes "$(cat <<'EOF'
+   <summary of changes, new features, breaking changes, PR list>
+   EOF
+   )"
+   ```
+   Use the v1.1.3 release as a template: features → platform support → breaking changes → shipped PRs → follow-up issues → upgrade instructions.
+5. Publish the draft: `gh release edit vX.Y.Z --draft=false`.
+6. `make smoke-test` locally. Do NOT publish if smoke tests fail.
+7. `npm publish --access public`.
 
 ### TAG NAMES ARE ONE-USE
 
