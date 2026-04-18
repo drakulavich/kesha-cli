@@ -78,17 +78,25 @@ impl Piper {
         encode_phonemes(&self.config.phoneme_id_map, ipa)
     }
 
-    /// Run synthesis on pre-encoded phoneme IDs. Returns mono f32 audio at [`Self::sample_rate`].
-    pub fn infer(&mut self, phoneme_ids: &[i64]) -> anyhow::Result<Vec<f32>> {
+    /// Run synthesis with a speed multiplier: `length_scale = voice_default / speed`.
+    /// speed > 1.0 speaks faster; speed < 1.0 speaks slower. speed == 1.0 is the
+    /// voice's config default.
+    pub fn infer_with_speed(
+        &mut self,
+        phoneme_ids: &[i64],
+        speed: f32,
+    ) -> anyhow::Result<Vec<f32>> {
         anyhow::ensure!(!phoneme_ids.is_empty(), "phoneme_ids must be non-empty");
+        anyhow::ensure!(speed > 0.0, "speed must be > 0 (got {speed})");
         let n = phoneme_ids.len();
+        let length_scale = self.config.inference.length_scale / speed;
 
         let input =
             Value::from_array(Array2::<i64>::from_shape_vec((1, n), phoneme_ids.to_vec())?)?;
         let input_lengths = Value::from_array(Array1::<i64>::from_vec(vec![n as i64]))?;
         let scales = Value::from_array(Array1::<f32>::from_vec(vec![
             self.config.inference.noise_scale,
-            self.config.inference.length_scale,
+            length_scale,
             self.config.inference.noise_w,
         ]))?;
 
@@ -166,8 +174,14 @@ mod tests {
         let mut p = Piper::load(Path::new(&model), Path::new(&config)).unwrap();
         // Hand-picked IDs in [10, 80] for shape/wiring check only.
         let ids: Vec<i64> = vec![1, 0, 20, 0, 30, 0, 40, 0, 50, 0, 60, 0, 70, 0, 2];
-        let audio = p.infer(&ids).unwrap();
+        let audio = p.infer_with_speed(&ids, 1.0).unwrap();
         assert!(audio.len() > 1000, "audio too short: {}", audio.len());
-        assert_eq!(p.sample_rate(), 22_050);
+        // Piper voices ship at different sample rates (e.g. 16k for small, 22.05k for medium);
+        // assert a permissive range rather than pinning a single value.
+        assert!(
+            p.sample_rate() >= 16_000 && p.sample_rate() <= 48_000,
+            "unexpected sample rate: {}",
+            p.sample_rate()
+        );
     }
 }

@@ -206,6 +206,7 @@ fn run_say(a: SayArgs) -> i32 {
         } => tts::EngineChoice::Piper {
             model_path,
             config_path,
+            speed: a.rate,
         },
     };
 

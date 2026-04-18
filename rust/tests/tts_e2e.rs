@@ -49,6 +49,7 @@ fn piper_russian_produces_wav() {
         engine: EngineChoice::Piper {
             model_path: Path::new(&model),
             config_path: Path::new(&config),
+            speed: 1.0,
         },
     })
     .unwrap();

@@ -35,6 +35,9 @@ pub enum EngineChoice<'a> {
     Piper {
         model_path: &'a Path,
         config_path: &'a Path,
+        /// Speed multiplier: 1.0 = voice default, 2.0 = twice as fast, 0.5 = half speed.
+        /// Mapped to Piper's `length_scale = 1 / speed`.
+        speed: f32,
     },
 }
 
@@ -79,7 +82,8 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
         EngineChoice::Piper {
             model_path,
             config_path,
-        } => say_with_piper(&ipa, model_path, config_path),
+            speed,
+        } => say_with_piper(&ipa, model_path, config_path, speed),
     }
 }
 
@@ -113,12 +117,24 @@ fn say_with_kokoro(
         .map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
 }
 
-fn say_with_piper(ipa: &str, model_path: &Path, config_path: &Path) -> Result<Vec<u8>, TtsError> {
+fn say_with_piper(
+    ipa: &str,
+    model_path: &Path,
+    config_path: &Path,
+    speed: f32,
+) -> Result<Vec<u8>, TtsError> {
     let mut p = piper::Piper::load(model_path, config_path)
         .map_err(|e| TtsError::SynthesisFailed(format!("piper load: {e}")))?;
     let ids = p.encode(ipa);
+    // `encode` always emits BOS + EOS; anything beyond the empty-input baseline means
+    // at least one phoneme matched. Parallel guard to the one in `say_with_kokoro`.
+    if ids.len() <= p.encode("").len() {
+        return Err(TtsError::SynthesisFailed(
+            "no recognizable phonemes in input".into(),
+        ));
+    }
     let audio = p
-        .infer(&ids)
+        .infer_with_speed(&ids, speed)
         .map_err(|e| TtsError::SynthesisFailed(format!("infer: {e}")))?;
     wav::encode_wav(&audio, p.sample_rate())
         .map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
