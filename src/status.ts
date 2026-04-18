@@ -61,12 +61,27 @@ function kesheCacheDir(): string {
 }
 
 function listInstalledVoices(): string[] {
-  const voicesDir = join(kesheCacheDir(), "models", "kokoro-82m", "voices");
+  const cache = kesheCacheDir();
+  const voices: string[] = [];
   try {
-    return readdirSync(voicesDir)
-      .filter((f) => f.endsWith(".bin"))
-      .map((f) => `en-${f.replace(/\.bin$/, "")}`);
+    const kokoro = readdirSync(join(cache, "models", "kokoro-82m", "voices"));
+    for (const f of kokoro) {
+      if (f.endsWith(".bin")) voices.push(`en-${f.replace(/\.bin$/, "")}`);
+    }
   } catch {
-    return [];
+    /* Kokoro not installed */
   }
+  try {
+    // Piper RU files follow `ru_RU-<name>-<quality>.onnx` — report just `<name>`.
+    const piper = readdirSync(join(cache, "models", "piper-ru"));
+    for (const f of piper) {
+      if (!f.endsWith(".onnx")) continue;
+      const stem = f.replace(/\.onnx$/, "");
+      const name = stem.replace(/^ru_RU-/, "").split("-")[0];
+      if (name) voices.push(`ru-${name}`);
+    }
+  } catch {
+    /* Piper not installed */
+  }
+  return voices.sort();
 }
