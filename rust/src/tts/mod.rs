@@ -47,6 +47,9 @@ pub struct SayOptions<'a> {
     /// espeak language code, e.g. `en-us`, `ru`.
     pub lang: &'a str,
     pub engine: EngineChoice<'a>,
+    /// When true, `text` is parsed as SSML (issue #122). `<break>` tags yield
+    /// silence of the declared duration; unknown tags are stripped with a warning.
+    pub ssml: bool,
 }
 
 /// Synthesize speech and return WAV bytes (mono float32; sample rate depends on engine).
@@ -64,6 +67,10 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
             max: MAX_TEXT_CHARS,
             actual: len,
         });
+    }
+
+    if opts.ssml {
+        return say_ssml(&opts);
     }
 
     let ipa = g2p::text_to_ipa(opts.text, opts.lang)
@@ -86,6 +93,117 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
             speed,
         } => say_with_piper(&ipa, model_path, config_path, speed),
     }
+}
+
+/// SSML path: parse, then synthesize each text segment through the engine (loaded once),
+/// interleaving silence for `<break>` segments. Concatenate the f32 samples and wrap as WAV.
+fn say_ssml(opts: &SayOptions) -> Result<Vec<u8>, TtsError> {
+    let segments =
+        ssml::parse(opts.text).map_err(|e| TtsError::SynthesisFailed(format!("ssml: {e}")))?;
+    if segments.is_empty() {
+        return Err(TtsError::SynthesisFailed(
+            "SSML had no speakable content".into(),
+        ));
+    }
+
+    match &opts.engine {
+        EngineChoice::Kokoro {
+            model_path,
+            voice_path,
+            speed,
+        } => synth_segments_kokoro(&segments, opts.lang, model_path, voice_path, *speed),
+        EngineChoice::Piper {
+            model_path,
+            config_path,
+            speed,
+        } => synth_segments_piper(&segments, opts.lang, model_path, config_path, *speed),
+    }
+}
+
+fn synth_segments_kokoro(
+    segments: &[ssml::Segment],
+    lang: &str,
+    model_path: &Path,
+    voice_path: &Path,
+    speed: f32,
+) -> Result<Vec<u8>, TtsError> {
+    let tok = tokenizer::Tokenizer::load()
+        .map_err(|e| TtsError::SynthesisFailed(format!("tokenizer load: {e}")))?;
+    let voice = voices::load_voice(voice_path)
+        .map_err(|e| TtsError::SynthesisFailed(format!("voice load: {e}")))?;
+    let mut k = kokoro::Kokoro::load(model_path)
+        .map_err(|e| TtsError::SynthesisFailed(format!("kokoro load: {e}")))?;
+    let sample_rate = kokoro::SAMPLE_RATE;
+    let mut out: Vec<f32> = Vec::new();
+    for seg in segments {
+        match seg {
+            ssml::Segment::Text(t) => {
+                let ipa = g2p::text_to_ipa(t, lang)
+                    .map_err(|e| TtsError::SynthesisFailed(format!("g2p: {e}")))?;
+                let ids = tok.encode(&ipa);
+                if ids.is_empty() {
+                    continue; // silent drop of non-speakable fragments
+                }
+                let active = ids.len();
+                let padded = tokenizer::Tokenizer::pad_to_context(ids);
+                let style = voices::select_style(&voice, active);
+                let audio = k
+                    .infer(&padded, style, speed)
+                    .map_err(|e| TtsError::SynthesisFailed(format!("infer: {e}")))?;
+                out.extend(audio);
+            }
+            ssml::Segment::Break(dur) => {
+                let samples = ((dur.as_secs_f64() * sample_rate as f64).round()) as usize;
+                out.extend(std::iter::repeat_n(0.0_f32, samples));
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err(TtsError::SynthesisFailed(
+            "no audio produced from SSML input".into(),
+        ));
+    }
+    wav::encode_wav(&out, sample_rate).map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
+}
+
+fn synth_segments_piper(
+    segments: &[ssml::Segment],
+    lang: &str,
+    model_path: &Path,
+    config_path: &Path,
+    speed: f32,
+) -> Result<Vec<u8>, TtsError> {
+    let mut p = piper::Piper::load(model_path, config_path)
+        .map_err(|e| TtsError::SynthesisFailed(format!("piper load: {e}")))?;
+    let sample_rate = p.sample_rate();
+    let empty_baseline = p.encode("").len();
+    let mut out: Vec<f32> = Vec::new();
+    for seg in segments {
+        match seg {
+            ssml::Segment::Text(t) => {
+                let ipa = g2p::text_to_ipa(t, lang)
+                    .map_err(|e| TtsError::SynthesisFailed(format!("g2p: {e}")))?;
+                let ids = p.encode(&ipa);
+                if ids.len() <= empty_baseline {
+                    continue; // only BOS/EOS/pad — nothing to speak
+                }
+                let audio = p
+                    .infer_with_speed(&ids, speed)
+                    .map_err(|e| TtsError::SynthesisFailed(format!("infer: {e}")))?;
+                out.extend(audio);
+            }
+            ssml::Segment::Break(dur) => {
+                let samples = ((dur.as_secs_f64() * sample_rate as f64).round()) as usize;
+                out.extend(std::iter::repeat_n(0.0_f32, samples));
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err(TtsError::SynthesisFailed(
+            "no audio produced from SSML input".into(),
+        ));
+    }
+    wav::encode_wav(&out, sample_rate).map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
 }
 
 fn say_with_kokoro(

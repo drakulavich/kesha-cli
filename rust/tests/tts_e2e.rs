@@ -24,6 +24,7 @@ fn kokoro_hello_world_produces_wav() {
             voice_path: Path::new(&voice),
             speed: 1.0,
         },
+        ssml: false,
     })
     .unwrap();
     assert_eq!(&wav[..4], b"RIFF", "not a WAV");
@@ -51,6 +52,7 @@ fn piper_russian_produces_wav() {
             config_path: Path::new(&config),
             speed: 1.0,
         },
+        ssml: false,
     })
     .unwrap();
     assert_eq!(&wav[..4], b"RIFF");
@@ -71,6 +73,7 @@ fn empty_text_errors() {
             voice_path: Path::new("/nonexistent"),
             speed: 1.0,
         },
+        ssml: false,
     });
     assert!(matches!(res, Err(TtsError::EmptyText)));
 }
@@ -86,6 +89,52 @@ fn too_long_errors() {
             voice_path: Path::new("/nonexistent"),
             speed: 1.0,
         },
+        ssml: false,
     });
     assert!(matches!(res, Err(TtsError::TextTooLong { .. })));
+}
+
+#[test]
+fn kokoro_ssml_with_break_produces_wav() {
+    let (model, voice) = match (std::env::var("KOKORO_MODEL"), std::env::var("KOKORO_VOICE")) {
+        (Ok(m), Ok(v)) => (m, v),
+        _ => {
+            eprintln!("skipping: set KOKORO_MODEL + KOKORO_VOICE");
+            return;
+        }
+    };
+    let wav = tts::say(SayOptions {
+        text: r#"<speak>Hello <break time="300ms"/> world</speak>"#,
+        lang: "en-us",
+        engine: EngineChoice::Kokoro {
+            model_path: Path::new(&model),
+            voice_path: Path::new(&voice),
+            speed: 1.0,
+        },
+        ssml: true,
+    })
+    .unwrap();
+    assert_eq!(&wav[..4], b"RIFF");
+    // Must be at least the audio for "Hello" + 300ms of silence + "world".
+    // ~300ms @ 24kHz mono f32 = 28.8 KB just in silence.
+    assert!(
+        wav.len() > 44 + 24_000,
+        "audio too short: {} bytes",
+        wav.len()
+    );
+}
+
+#[test]
+fn ssml_input_without_speak_root_errors() {
+    let res = tts::say(SayOptions {
+        text: "plain text, not SSML",
+        lang: "en-us",
+        engine: EngineChoice::Kokoro {
+            model_path: Path::new("/nonexistent"),
+            voice_path: Path::new("/nonexistent"),
+            speed: 1.0,
+        },
+        ssml: true,
+    });
+    assert!(matches!(res, Err(TtsError::SynthesisFailed(_))));
 }
