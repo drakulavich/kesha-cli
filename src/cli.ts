@@ -120,6 +120,10 @@ export const sayCommand = defineCommand({
     out: { type: "string", description: "Write WAV to file instead of stdout" },
     rate: { type: "string", description: "Speaking rate 0.5–2.0", default: "1.0" },
     "list-voices": { type: "boolean", description: "List installed voices and exit" },
+    ssml: {
+      type: "boolean",
+      description: "Parse input as SSML (supports <speak>, <break>; strips unknown tags)",
+    },
   },
   async run({ args }) {
     if (args["list-voices"]) {
@@ -143,6 +147,7 @@ export const sayCommand = defineCommand({
       lang: typeof args.lang === "string" ? args.lang : undefined,
       out: typeof args.out === "string" ? args.out : undefined,
       rate: args.rate ? Number(args.rate) : undefined,
+      ssml: Boolean(args.ssml),
     };
 
     try {

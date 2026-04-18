@@ -15,6 +15,8 @@ export interface SayOptions {
   out?: string;
   /** Speaking rate 0.5–2.0. */
   rate?: number;
+  /** Parse `text` as SSML (`<speak>…<break time="500ms"/>…</speak>`). See issue #122. */
+  ssml?: boolean;
 }
 
 /** Build the argv passed to `kesha-engine say` (pure, unit-testable). */
@@ -24,6 +26,7 @@ export function buildSayArgs(o: SayOptions): string[] {
   if (o.lang) args.push("--lang", o.lang);
   if (o.out) args.push("--out", o.out);
   if (o.rate !== undefined && o.rate !== 1.0) args.push("--rate", String(o.rate));
+  if (o.ssml) args.push("--ssml");
   if (o.text !== undefined && o.text.length > 0) args.push(o.text);
   return args;
 }
