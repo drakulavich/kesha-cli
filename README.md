@@ -93,11 +93,30 @@ kesha say --voice en-af_heart "text"    # explicit voice overrides auto-routing
 kesha say --list-voices
 ```
 
-Output format: WAV mono float32 (24 kHz for Kokoro, 22.05 kHz for Piper). OGG/Opus, MP3, and SSML are tracked in follow-up issues ([#122](https://github.com/drakulavich/kesha-voice-kit/issues/122)). Static-linking of `espeak-ng` to remove the system dep is [#124](https://github.com/drakulavich/kesha-voice-kit/issues/124).
+Output format: WAV mono float32 (24 kHz for Kokoro, 22.05 kHz for Piper). OGG/Opus and MP3 are tracked in follow-up issues. Static-linking of `espeak-ng` to remove the system dep is [#124](https://github.com/drakulavich/kesha-voice-kit/issues/124).
 
 **Supported voices:**
 - English: `en-af_heart` (default), plus any Kokoro voice you download into `~/.cache/kesha/models/kokoro-82m/voices/`
 - Russian: `ru-denis` (default). More speakers (dmitri, irina, ruslan) are ready to drop in once needed.
+
+### SSML (preview)
+
+`kesha say --ssml` accepts [SSML](https://www.w3.org/TR/speech-synthesis11/) for pauses and text-structuring. v1 is deliberately small:
+
+```bash
+kesha say --ssml '<speak>Hello <break time="500ms"/> world.</speak>'
+kesha say --ssml --voice ru-denis '<speak>Привет <break time="1s"/> мир.</speak>'
+```
+
+| Tag | Status |
+|---|---|
+| `<speak>` | ✅ required root |
+| `<break time="Nms"\|"Ns"\|default>` | ✅ inserts silence of the given duration |
+| plain text inside `<speak>` | ✅ synthesized via the selected engine |
+| `<emphasis>`, `<prosody>`, `<phoneme>`, `<say-as>` | ⚠️ stripped with a stderr warning (contained text still synthesized); tracked in [#122](https://github.com/drakulavich/kesha-voice-kit/issues/122) |
+| `<!DOCTYPE>` | ❌ rejected (hardening against XXE) |
+
+SSML is opt-in via the explicit `--ssml` flag — inputs that happen to contain `<angle brackets>` aren't misinterpreted as SSML.
 
 ## What's Inside
 
