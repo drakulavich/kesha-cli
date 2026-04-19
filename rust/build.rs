@@ -44,6 +44,13 @@ fn build_avspeech_helper() {
     );
 
     // Expose the path to runtime code via env!("KESHA_AVSPEECH_HELPER").
+    //
+    // KNOWN LIMITATION: $OUT_DIR is ephemeral and machine-specific. After
+    // `cargo clean` or when kesha-engine is moved off this machine (installed,
+    // distributed, or zipped in a release), this baked-in path becomes stale.
+    // Part 3 of #141 replaces this with "look up a sibling `say-avspeech`
+    // next to the current executable" for deployed binaries, keeping this
+    // path as the fallback for `cargo run` / `cargo test`.
     println!(
         "cargo:rustc-env=KESHA_AVSPEECH_HELPER={}",
         out_bin.display()

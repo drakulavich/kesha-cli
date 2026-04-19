@@ -42,6 +42,7 @@ if utt.voice == nil {
 var samples: [Float] = []
 var sampleRate: Double = 0
 var channels: AVAudioChannelCount = 0
+var timedOut = false
 
 synth.write(utt) { buffer in
   guard let pcm = buffer as? AVAudioPCMBuffer else { return }
@@ -56,14 +57,21 @@ synth.write(utt) { buffer in
   samples.append(contentsOf: UnsafeBufferPointer(start: floatPtr, count: count))
 }
 
-// 15s wall-clock watchdog on a background queue.
+// 15s wall-clock watchdog on a background queue. Setting `timedOut = true`
+// before stopping the run loop lets the post-loop check exit non-zero even
+// if some buffers arrived first — partial WAV on stdout is worse than none,
+// because the Rust caller would treat it as success.
 DispatchQueue.global().asyncAfter(deadline: .now() + 15) {
   FileHandle.standardError.write("timeout waiting for synthesis\n".data(using: .utf8)!)
+  timedOut = true
   CFRunLoopStop(CFRunLoopGetMain())
 }
 CFRunLoopRun()
 
-guard !samples.isEmpty, sampleRate > 0 else {
+if timedOut {
+  exit(3)
+}
+guard !samples.isEmpty, sampleRate > 0, channels > 0 else {
   FileHandle.standardError.write("no samples produced\n".data(using: .utf8)!)
   exit(4)
 }
