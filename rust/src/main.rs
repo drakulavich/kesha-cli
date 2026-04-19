@@ -69,6 +69,10 @@ enum Commands {
         /// List installed voices and exit
         #[arg(long)]
         list_voices: bool,
+        /// Parse the input as SSML (supports <speak>, <break>; strips unknown tags).
+        /// See issue #122 for the v1 tag matrix.
+        #[arg(long)]
+        ssml: bool,
         /// Explicit model path (testing override)
         #[arg(long, hide = true)]
         model: Option<std::path::PathBuf>,
@@ -86,6 +90,7 @@ struct SayArgs {
     out: Option<std::path::PathBuf>,
     rate: f32,
     list_voices: bool,
+    ssml: bool,
     model: Option<std::path::PathBuf>,
     voice_file: Option<std::path::PathBuf>,
 }
@@ -245,6 +250,7 @@ fn run_say(a: SayArgs) -> i32 {
         text: &text_joined,
         lang: &espeak_lang,
         engine,
+        ssml: a.ssml,
     }) {
         Ok(w) => w,
         Err(e) => {
@@ -308,6 +314,7 @@ fn main() -> Result<()> {
             out,
             rate,
             list_voices,
+            ssml,
             model,
             voice_file,
         }) => {
@@ -318,6 +325,7 @@ fn main() -> Result<()> {
                 out,
                 rate,
                 list_voices,
+                ssml,
                 model,
                 voice_file,
             }));

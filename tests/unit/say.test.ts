@@ -55,6 +55,24 @@ describe("buildSayArgs", () => {
     expect(textIdx).toBeGreaterThan(voiceIdx);
     expect(textIdx).toBeGreaterThan(langIdx);
   });
+
+  it("omits --ssml when false or undefined", () => {
+    expect(buildSayArgs({ text: "hi" })).not.toContain("--ssml");
+    expect(buildSayArgs({ text: "hi", ssml: false })).not.toContain("--ssml");
+  });
+
+  it("includes --ssml when true", () => {
+    const args = buildSayArgs({ text: "<speak>hi</speak>", ssml: true });
+    expect(args).toContain("--ssml");
+  });
+
+  it("--ssml precedes the text positional (clap needs flags first)", () => {
+    const args = buildSayArgs({ text: "<speak>hi</speak>", ssml: true });
+    const ssmlIdx = args.indexOf("--ssml");
+    const textIdx = args.indexOf("<speak>hi</speak>");
+    expect(ssmlIdx).toBeGreaterThan(-1);
+    expect(textIdx).toBeGreaterThan(ssmlIdx);
+  });
 });
 
 describe("pickVoiceForLang (auto-routing)", () => {
