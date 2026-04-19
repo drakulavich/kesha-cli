@@ -42,14 +42,11 @@ pub fn parse(input: &str) -> anyhow::Result<Vec<Segment>> {
             &trimmed.chars().take(20).collect::<String>()
         );
     }
-    // Reject DOCTYPE declarations — defense in depth against billion-laughs / XXE,
-    // even though ssml-parser doesn't currently expand external entities.
-    let leading = trimmed
-        .chars()
-        .take(256)
-        .collect::<String>()
-        .to_ascii_uppercase();
-    if leading.contains("<!DOCTYPE") {
+    // Reject DOCTYPE declarations anywhere in the document — defense in depth
+    // against billion-laughs / XXE, even though ssml-parser doesn't currently
+    // expand external entities. Input length is already bounded upstream
+    // (`MAX_TEXT_CHARS`), so a full scan is cheap.
+    if contains_doctype(trimmed) {
         anyhow::bail!("SSML DOCTYPE declarations are not supported");
     }
 
@@ -103,11 +100,45 @@ fn push_text_slice(out: &mut Vec<Segment>, text: &[char], start: usize, end: usi
 }
 
 fn tag_name(el: &ParsedElement) -> String {
-    // ParsedElement variant names mirror SSML element names; Debug gives `Variant(attrs)`.
-    // Strip to just the lowercased head.
-    let dbg = format!("{:?}", el);
-    let head = dbg.split('(').next().unwrap_or("unknown");
-    head.to_ascii_lowercase()
+    // Explicit map to the canonical SSML element name. Using Debug would produce
+    // `sayas` for `<say-as>` and `description` for `<desc>` — user-facing warnings
+    // need to match the tag the user typed.
+    let name = match el {
+        ParsedElement::Speak(_) => "speak",
+        ParsedElement::Lexicon(_) => "lexicon",
+        ParsedElement::Lookup(_) => "lookup",
+        ParsedElement::Meta(_) => "meta",
+        ParsedElement::Metadata => "metadata",
+        ParsedElement::Paragraph => "p",
+        ParsedElement::Sentence => "s",
+        ParsedElement::Token(_) => "token",
+        ParsedElement::Word(_) => "w",
+        ParsedElement::SayAs(_) => "say-as",
+        ParsedElement::Phoneme(_) => "phoneme",
+        ParsedElement::Sub(_) => "sub",
+        ParsedElement::Lang(_) => "lang",
+        ParsedElement::Voice(_) => "voice",
+        ParsedElement::Emphasis(_) => "emphasis",
+        ParsedElement::Break(_) => "break",
+        ParsedElement::Prosody(_) => "prosody",
+        ParsedElement::Audio(_) => "audio",
+        ParsedElement::Mark(_) => "mark",
+        ParsedElement::Description(_) => "desc",
+        ParsedElement::Custom((name, _)) => return name.to_ascii_lowercase(),
+    };
+    name.to_string()
+}
+
+/// Case-insensitive search for `<!DOCTYPE` anywhere in the input.
+fn contains_doctype(input: &str) -> bool {
+    const NEEDLE: &[u8] = b"<!DOCTYPE";
+    let bytes = input.as_bytes();
+    if bytes.len() < NEEDLE.len() {
+        return false;
+    }
+    bytes
+        .windows(NEEDLE.len())
+        .any(|w| w.eq_ignore_ascii_case(NEEDLE))
 }
 
 #[cfg(test)]
@@ -211,6 +242,27 @@ mod tests {
         // Invalid time designation (not "Ns" or "Nms") → upstream parser rejects.
         let input = r#"<speak><break time="abc"/></speak>"#;
         assert!(parse(input).is_err());
+    }
+
+    #[test]
+    fn doctype_deep_in_document_is_rejected() {
+        // DOCTYPE past a 256-char prefix — earlier implementation had a scan window.
+        let filler = "a ".repeat(400);
+        let input = format!("<speak>{filler}<!DOCTYPE evil>tail</speak>");
+        let err = parse(&input).unwrap_err();
+        assert!(err.to_string().contains("DOCTYPE"), "msg: {err}");
+    }
+
+    #[test]
+    fn say_as_tag_warning_uses_hyphenated_name() {
+        // Regression: earlier Debug-based tag_name() produced `sayas`.
+        use ssml_parser::elements::SayAsAttributes;
+        let el = ParsedElement::SayAs(SayAsAttributes {
+            interpret_as: "characters".to_string(),
+            format: None,
+            detail: None,
+        });
+        assert_eq!(tag_name(&el), "say-as");
     }
 
     #[test]
