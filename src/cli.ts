@@ -4,7 +4,8 @@ import { defineCommand, runMain } from "citty";
 import { detect } from "tinyld";
 import { transcribe } from "./lib";
 import { downloadEngine } from "./engine-install";
-import { detectAudioLanguageEngine, detectTextLanguageEngine } from "./engine";
+import { detectAudioLanguageEngine, detectTextLanguageEngine, getEngineBinPath } from "./engine";
+import { readStarSeen, shouldShowStarPrompt, writeStarSeen } from "./star";
 import type { LangDetectResult } from "./engine";
 import { log } from "./log";
 import { say, SayError } from "./say";
@@ -50,6 +51,24 @@ function resolveBackendFlag(coreml: boolean, onnx: boolean): string | undefined 
 }
 
 async function askForStar() {
+  // Gate on major-or-minor bump only — patch releases and re-installs of the
+  // same version shouldn't nag. First-ever install (no marker) still prompts.
+  const currentVersion = typeof pkg.version === "string" ? pkg.version : null;
+  if (!currentVersion) return;
+  const binPath = getEngineBinPath();
+  const seen = readStarSeen(binPath);
+  if (!shouldShowStarPrompt(currentVersion, seen)) {
+    return;
+  }
+  // Record the version up front so a single run never prompts twice, even
+  // if the gh subprocess below throws.
+  try {
+    writeStarSeen(binPath, currentVersion);
+  } catch {
+    // Non-fatal — falling through to the prompt is still OK, just means we
+    // may nag again on the next install if the write failed for IO reasons.
+  }
+
   const gh = Bun.which("gh");
   if (!gh) {
     log.info("\nIf you enjoy Kesha Voice Kit, consider starring the repo:");
