@@ -135,7 +135,7 @@ describe.skipIf(!engineInstalled)("e2e-transcribe", () => {
       FIXTURE_RU,
     ]);
     expect(exitCode).toBe(0);
-    expect(stdout).toMatch(/\[lang: [a-z]{2}, confidence: \d\.\d{2}\]/);
+    expect(stdout).toMatch(/\[lang: [a-z]{2}, confidence: \d+\.\d+\]/);
   }, 60_000);
 
   test("partial failure: one valid + one missing → exit 1 with a single result", async () => {

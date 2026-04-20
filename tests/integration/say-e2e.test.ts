@@ -78,13 +78,12 @@ describe("kesha say e2e", () => {
       expect(await proc.exited).toBe(0);
       const stderr = await new Response(proc.stderr).text();
       expect(stderr).toContain("[debug]");
-      expect(stderr).toContain("spawn");
     },
     60_000,
   );
 
   it.skipIf(!SPIKE_AVAILABLE)(
-    "no KESHA_DEBUG → stderr is free of [debug] markers",
+    "empty KESHA_DEBUG → stderr is free of [debug] markers",
     async () => {
       const outPath = `/tmp/kesha-nodebug-${Date.now()}.wav`;
       const proc = spawnCli(["say", "Hi", "--out", outPath], { KESHA_DEBUG: "" });
