@@ -17,13 +17,11 @@ export function getVersionMarkerPath(binPath: string): string {
 
 /** Read the recorded version for the installed binary, or null if missing / empty. */
 export function readInstalledEngineVersion(binPath: string): string | null {
-  const markerPath = getVersionMarkerPath(binPath);
-  if (!existsSync(markerPath)) return null;
   try {
-    const v = readFileSync(markerPath, "utf-8").trim();
+    const v = readFileSync(getVersionMarkerPath(binPath), "utf-8").trim();
     return v.length > 0 ? v : null;
   } catch {
-    // Unreadable marker → treat as missing so we re-download.
+    // Missing, unreadable, or permission-denied → treat as no marker so we re-download.
     return null;
   }
 }

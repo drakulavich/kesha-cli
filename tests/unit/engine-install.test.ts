@@ -45,9 +45,12 @@ describe("engine-install version marker (#151)", () => {
     rmSync(binPath + ".version");
   });
 
-  test("trims trailing newlines on read", () => {
+  test("trims surrounding whitespace on read (hand-written marker)", () => {
+    // Test via writeFileSync so the trim path is actually exercised —
+    // writeInstalledEngineVersion only appends one \n, which String.trim
+    // would strip regardless of our handling.
     const binPath = mkTmpBinPath();
-    writeInstalledEngineVersion(binPath, "1.2.0");
+    writeFileSync(binPath + ".version", "  1.2.0\n\n\n");
     expect(readInstalledEngineVersion(binPath)).toBe("1.2.0");
     rmSync(binPath + ".version");
   });
