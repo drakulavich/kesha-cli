@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, afterEach } from "bun:test";
 import {
   shouldShowStarPrompt,
   starSeenPath,
@@ -10,10 +10,19 @@ import { mkdtempSync, writeFileSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
+const tmpDirs: string[] = [];
+
 function mkTmpBinPath(): string {
   const dir = mkdtempSync(join(tmpdir(), "kesha-star-test-"));
+  tmpDirs.push(dir);
   return join(dir, "kesha-engine");
 }
+
+afterEach(() => {
+  while (tmpDirs.length > 0) {
+    rmSync(tmpDirs.pop()!, { recursive: true, force: true });
+  }
+});
 
 describe("shouldShowStarPrompt — version-bump gate", () => {
   test("first install (null seen) → show", () => {
