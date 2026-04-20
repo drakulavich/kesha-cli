@@ -83,7 +83,9 @@ Stdout: transcript. Stderr: errors. Pipe-friendly. Also available as `parakeet` 
 Kesha speaks back via Kokoro-82M (English) and Piper (Russian). Voice is auto-picked from the input text's language — `en` routes to Kokoro, `ru` to Piper. Pass `--voice` to override.
 
 ```bash
-brew install espeak-ng              # one-time system dep (macOS — apt/choco elsewhere)
+brew install espeak-ng              # one-time system dep — macOS
+# Linux:   sudo apt install espeak-ng
+# Windows: choco install espeak-ng  (puts libespeak-ng.dll on PATH)
 kesha install --tts                 # ~390MB (Kokoro + Piper RU, opt-in)
 kesha say "Hello, world" > hello.wav
 kesha say "Привет, мир" > privet.wav    # auto-routes to ru-denis
