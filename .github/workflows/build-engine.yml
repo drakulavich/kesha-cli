@@ -165,9 +165,19 @@ jobs:
           cp "$src" "${{ matrix.binary }}"
       - name: Smoke-test binary
         shell: bash
+        # Assert `tts` is in the capabilities — otherwise a future feature-flag
+        # regression (e.g. matrix row silently drops `tts`) would ship a
+        # release binary missing `kesha say`. Past incident this guards
+        # against: v1.1.0 → v1.1.3, see CLAUDE.md "BUILD-ENGINE FEATURE
+        # MATRIX MIRRORS CARGO DEFAULTS".
         run: |
           chmod +x "${{ matrix.binary }}"
-          "./${{ matrix.binary }}" --capabilities-json
+          caps=$("./${{ matrix.binary }}" --capabilities-json)
+          echo "$caps"
+          echo "$caps" | grep -q '"tts"' || {
+            echo "expected tts in capabilities, got: $caps" >&2
+            exit 1
+          }
       - name: Inspect macOS dynamic deps
         if: matrix.os == 'macos-14'
         shell: bash
