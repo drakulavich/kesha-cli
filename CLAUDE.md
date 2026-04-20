@@ -111,6 +111,17 @@ gh label create WIP -R drakulavich/kesha-voice-kit --color FBCA04 \
   --description "An agent or contributor is actively working on this"
 ```
 
+### LINK PRS TO ISSUES — AUTO-CLOSE ON MERGE
+
+When a PR addresses a GitHub issue, link it in the PR body with a closing keyword so the issue auto-closes the moment the PR merges into `main`. Drifting issues (merged PR, open issue) are a recurring cleanup tax.
+
+- **Closing keywords:** `Closes #N`, `Fixes #N`, or `Resolves #N`. Case-insensitive, must be in the PR body or a commit message, not just in the title. Multiple issues: `Closes #N, closes #M` — each needs its own keyword.
+- **Non-closing reference:** `Refs #N` — use this when the PR is only a partial step toward the issue (e.g. acceptance criteria include "cut a release" that happens after merge). Close manually once the remaining steps land.
+- **After merge, verify:** `gh issue view <N> -R drakulavich/kesha-voice-kit --json state` — if it's still OPEN but the work is done, close it with `gh issue close <N> -R drakulavich/kesha-voice-kit --comment "..."`. GitHub only auto-closes when the PR merges into the repo's default branch; merges into other branches leave the issue open.
+- **Cross-repo links** (rare here) need the full `owner/repo#N` form.
+
+Past drift this rule prevents: #136 acceptance list had four items; PR #159 closed item #1 but #136 was left open (correct — needed #162 + a release to finish). PR #162 closed item #2 but again stayed open pending release. Without an explicit close-manually discipline these accumulate.
+
 ### VERIFY THIRD-PARTY MODEL FORMATS WITH A SPIKE
 
 Any plan that names a specific upstream artifact ("Silero via ONNX", "statically-linked espeak-ng", "FluidAudio CoreML Kokoro") MUST be validated with a throwaway spike BEFORE the implementation phase commits to it.
