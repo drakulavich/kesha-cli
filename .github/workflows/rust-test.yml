@@ -34,11 +34,52 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y espeak-ng libespeak-ng-dev
 
-      # Windows TTS support is blocked on generating an import lib for
-      # libespeak-ng — the choco package ships the DLL but no .lib, and
-      # espeakng-sys links dynamically via `cargo:rustc-link-lib=espeak-ng`,
-      # so MSVC linker hits LNK1181. Tracked in #136. Until that's sorted,
-      # Windows CI tests the ASR / lang-id path only (onnx feature).
+      # Windows TTS setup (#136): chocolatey ships the DLL only, so we
+      # synthesize an import lib from the DLL's export table using MSVC's
+      # dumpbin + lib tools, then point cargo at it for the linker step.
+      # espeakng-sys ships its own C headers in the crate, so nothing to
+      # install for bindgen other than LLVM's libclang.
+      - name: Install espeak-ng + LLVM (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: choco install -y --no-progress espeak-ng llvm
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+
+      - name: Generate libespeak-ng import lib from DLL (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $espeakDir = "C:\Program Files\eSpeak NG"
+          $dll = "$espeakDir\libespeak-ng.dll"
+          if (-not (Test-Path $dll)) {
+            Write-Error "espeak-ng DLL not found at $dll"
+            exit 1
+          }
+          # dumpbin / lib require the MSVC dev environment — activated above.
+          $libDir = "$env:RUNNER_TEMP\espeak-lib"
+          New-Item -ItemType Directory -Force -Path $libDir | Out-Null
+          $def = "$libDir\libespeak-ng.def"
+          "LIBRARY libespeak-ng`r`nEXPORTS" | Set-Content -Encoding ASCII $def
+          # dumpbin /exports rows look like:
+          #     1    0 00001A20 espeak_Cancel
+          # — grab just the symbol name (4th column).
+          dumpbin /exports $dll |
+            Select-String '^\s+\d+\s+[0-9A-F]+\s+[0-9A-F]+\s+(\S+)' |
+            ForEach-Object { $_.Matches.Groups[1].Value } |
+            Add-Content -Encoding ASCII $def
+          $exportCount = (Get-Content $def | Measure-Object -Line).Lines - 2
+          Write-Host "Generated .def with $exportCount exports"
+          lib /def:$def /machine:x64 /out:"$libDir\libespeak-ng.lib"
+          if (-not (Test-Path "$libDir\libespeak-ng.lib")) {
+            Write-Error "lib.exe failed to produce libespeak-ng.lib"
+            exit 1
+          }
+          # Linker path (build time) + DLL path (runtime) + libclang for bindgen.
+          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$libDir;$env:LIB"
+          Add-Content -Path $env:GITHUB_PATH -Value $espeakDir
+          Add-Content -Path $env:GITHUB_ENV -Value "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
 
       - name: Cache Kokoro spike models
         uses: actions/cache@v4
@@ -47,20 +88,12 @@ jobs:
           key: kokoro-spike-v1-${{ runner.os }}
 
       - name: Download Kokoro model (if cache miss)
-        # Skip on Windows — TTS tests are gated out there (#136).
-        if: runner.os != 'Windows'
         shell: bash
         run: bash rust/ci/download-kokoro.sh "$KOKORO_CACHE"
 
       - name: Run tests (with real Kokoro + espeak)
         shell: bash
-        # Windows skips tts — see #136 note in the install step above.
-        run: |
-          EXTRA=""
-          if [ "${{ runner.os }}" = "Windows" ]; then
-            EXTRA="--no-default-features --features onnx"
-          fi
-          bash rust/ci/run-cargo-test.sh "$KOKORO_CACHE" "${{ runner.os }}" "$EXTRA"
+        run: bash rust/ci/run-cargo-test.sh "$KOKORO_CACHE" "${{ runner.os }}"
 
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'
