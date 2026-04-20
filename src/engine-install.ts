@@ -1,10 +1,34 @@
 import { dirname } from "path";
-import { existsSync, mkdirSync, chmodSync } from "fs";
+import { existsSync, mkdirSync, chmodSync, readFileSync, writeFileSync } from "fs";
 import { getEngineBinPath, getEngineCapabilities } from "./engine";
 import { log } from "./log";
 import { streamResponseToFile } from "./progress";
 
 const GITHUB_REPO = "drakulavich/kesha-voice-kit";
+
+/**
+ * Version-marker file written next to the engine binary on download (#151).
+ * Lets `kesha install` detect a stale cached engine after a CLI upgrade and
+ * re-download without requiring `--no-cache`.
+ */
+export function getVersionMarkerPath(binPath: string): string {
+  return `${binPath}.version`;
+}
+
+/** Read the recorded version for the installed binary, or null if missing / empty. */
+export function readInstalledEngineVersion(binPath: string): string | null {
+  try {
+    const v = readFileSync(getVersionMarkerPath(binPath), "utf-8").trim();
+    return v.length > 0 ? v : null;
+  } catch {
+    // Missing, unreadable, or permission-denied → treat as no marker so we re-download.
+    return null;
+  }
+}
+
+export function writeInstalledEngineVersion(binPath: string, version: string): void {
+  writeFileSync(getVersionMarkerPath(binPath), `${version}\n`);
+}
 
 function getEngineBinaryName(): string {
   const platform = process.platform;
@@ -28,21 +52,31 @@ export async function downloadEngine(
   options: InstallOptions = {},
 ): Promise<string> {
   const binPath = getEngineBinPath();
-
-  if (!noCache && existsSync(binPath)) {
-    log.success("Engine binary already installed.");
-  } else {
-    const binaryName = getEngineBinaryName();
-    const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
-    // The engine version is tracked separately from the CLI version so
-    // CLI-only patch releases don't require cutting a new GitHub release
-    // + Rust rebuild. Fall back to the CLI version for backwards compat.
-    const engineVersion =
-      typeof pkg.keshaEngine?.version === "string"
-        ? pkg.keshaEngine.version
-        : typeof pkg.version === "string"
+  const pkg = await Bun.file(new URL("../package.json", import.meta.url)).json();
+  // The engine version is tracked separately from the CLI version so
+  // CLI-only patch releases don't require cutting a new GitHub release
+  // + Rust rebuild. Fall back to the CLI version for backwards compat.
+  const engineVersion =
+    typeof pkg.keshaEngine?.version === "string"
+      ? pkg.keshaEngine.version
+      : typeof pkg.version === "string"
         ? pkg.version
         : "unknown";
+
+  const installedVersion = readInstalledEngineVersion(binPath);
+  const cacheValid =
+    !noCache && existsSync(binPath) && installedVersion === engineVersion;
+
+  if (cacheValid) {
+    log.success(`Engine binary already installed (v${engineVersion}).`);
+  } else {
+    // Log why we're downloading — helps diagnose surprising re-downloads.
+    if (existsSync(binPath) && installedVersion && installedVersion !== engineVersion) {
+      log.progress(
+        `Upgrading engine v${installedVersion} → v${engineVersion}...`,
+      );
+    }
+    const binaryName = getEngineBinaryName();
     const url = `https://github.com/${GITHUB_REPO}/releases/download/v${engineVersion}/${binaryName}`;
 
     mkdirSync(dirname(binPath), { recursive: true });
@@ -64,7 +98,8 @@ export async function downloadEngine(
 
     await streamResponseToFile(res, binPath, "kesha-engine binary");
     chmodSync(binPath, 0o755);
-    log.success("Engine binary downloaded.");
+    writeInstalledEngineVersion(binPath, engineVersion);
+    log.success(`Engine binary downloaded (v${engineVersion}).`);
   }
 
   if (backend) {
