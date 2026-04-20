@@ -76,7 +76,9 @@ jobs:
           # dumpbin / lib require the MSVC dev environment — activated above.
           $libDir = "$env:RUNNER_TEMP\espeak-lib"
           New-Item -ItemType Directory -Force -Path $libDir | Out-Null
-          $def = "$libDir\libespeak-ng.def"
+          $def = "$libDir\espeak-ng.def"
+          # LIBRARY must match the DLL filename (libespeak-ng.dll); OUT name
+          # must match `cargo:rustc-link-lib=espeak-ng` (no `lib` prefix on MSVC).
           "LIBRARY libespeak-ng`r`nEXPORTS" | Set-Content -Encoding ASCII $def
           # dumpbin /exports rows look like:
           #     1    0 00001A20 espeak_Cancel
@@ -87,9 +89,9 @@ jobs:
             Add-Content -Encoding ASCII $def
           $exportCount = (Get-Content $def | Measure-Object -Line).Lines - 2
           Write-Host "Generated .def with $exportCount exports"
-          lib /def:$def /machine:x64 /out:"$libDir\libespeak-ng.lib"
-          if (-not (Test-Path "$libDir\libespeak-ng.lib")) {
-            Write-Error "lib.exe failed to produce libespeak-ng.lib"
+          lib /def:$def /machine:x64 /out:"$libDir\espeak-ng.lib"
+          if (-not (Test-Path "$libDir\espeak-ng.lib")) {
+            Write-Error "lib.exe failed to produce espeak-ng.lib"
             exit 1
           }
           # Linker path (build time) + DLL path (runtime) + libclang for bindgen.
