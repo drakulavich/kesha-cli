@@ -47,6 +47,8 @@ jobs:
           key: kokoro-spike-v1-${{ runner.os }}
 
       - name: Download Kokoro model (if cache miss)
+        # Skip on Windows — TTS tests are gated out there (#136).
+        if: runner.os != 'Windows'
         shell: bash
         run: bash rust/ci/download-kokoro.sh "$KOKORO_CACHE"
 

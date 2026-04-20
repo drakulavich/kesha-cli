@@ -22,8 +22,9 @@ case "$RUNNER_OS" in
     :
     ;;
   Windows)
-    # LIBCLANG_PATH is set in the workflow step for bindgen. No TTS libs on
-    # Windows yet — caller should pass --no-default-features --features onnx.
+    # No TTS libs on Windows yet (espeak-ng import library — #136).
+    # Caller passes --no-default-features --features onnx via $EXTRA_CARGO_ARGS
+    # so nothing platform-specific needs to be exported here.
     :
     ;;
   *)
