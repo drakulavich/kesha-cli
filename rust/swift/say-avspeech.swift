@@ -4,7 +4,9 @@
 // Emits mono float32 WAV (IEEE_FLOAT) at the voice's native sample rate
 // (22050 Hz on every macOS voice we've tested). Stderr carries progress + errors.
 //
-// Usage: say-avspeech <voiceId> [text]  (stdin if text is omitted)
+// Usage:
+//   say-avspeech <voiceId> [text]   # synthesize (stdin if text is omitted)
+//   say-avspeech --list-voices      # print installed voices, one per line
 //
 // Key gotcha: AVSpeechSynthesizer.write(_:toBufferCallback:) delivers buffers
 // on the main dispatch queue, so the CLI MUST pump the run loop. Semaphores
@@ -15,9 +17,20 @@ import Foundation
 
 let args = CommandLine.arguments
 guard args.count >= 2 else {
-  FileHandle.standardError.write("usage: say-avspeech <voiceID> [text — else stdin]\n".data(using: .utf8)!)
+  FileHandle.standardError.write("usage: say-avspeech <voiceID> [text — else stdin] | --list-voices\n".data(using: .utf8)!)
   exit(2)
 }
+
+// --list-voices mode: print `identifier|language|name`, one per line.
+// Rust side strips the first field, prefixes with `macos-`, and merges into
+// the global voice list.
+if args[1] == "--list-voices" {
+  for voice in AVSpeechSynthesisVoice.speechVoices() {
+    print("\(voice.identifier)|\(voice.language)|\(voice.name)")
+  }
+  exit(0)
+}
+
 let voiceId = args[1]
 let text: String
 if args.count >= 3 {
