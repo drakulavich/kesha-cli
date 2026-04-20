@@ -37,11 +37,14 @@ jobs:
             target: x86_64-unknown-linux-gnu
             features: onnx,tts
             binary: kesha-engine-linux-x64
-          # Windows ships without TTS pending `choco install espeak-ng` path
-          # verification (see rust-test.yml matrix note).
+          # Windows links espeak-ng at build time via an import lib
+          # synthesized from the choco-shipped DLL (see Windows block below
+          # and the matching recipe in rust-test.yml). Runtime prereq:
+          # users must `choco install espeak-ng` so libespeak-ng.dll is on
+          # PATH — we do not bundle the DLL in the release archive.
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            features: onnx
+            features: onnx,tts
             binary: kesha-engine-windows-x64.exe
     runs-on: ${{ matrix.os }}
     env:
@@ -77,6 +80,81 @@ jobs:
         run: |
           echo "LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib" >> $GITHUB_ENV
           echo "RUSTFLAGS=-L /opt/homebrew/lib" >> $GITHUB_ENV
+
+      # Windows TTS setup (#136) mirrors rust-test.yml: chocolatey ships
+      # the DLL only, so we synthesize an import lib from the DLL's export
+      # table using MSVC's dumpbin + lib tools, then point cargo at it for
+      # the linker step. espeakng-sys ships its own C headers in the
+      # crate, so nothing to install for bindgen other than LLVM's libclang.
+      - name: Install espeak-ng + LLVM (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: choco install -y --no-progress espeak-ng llvm
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.os == 'windows-latest'
+
+      - name: Pin MSVC linker (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        # Windows runners ship Git for Windows with a `link` binary (GNU
+        # coreutils) on PATH via /c/Program Files/Git/usr/bin. When `shell:
+        # bash` is used, it shadows MSVC's link.exe and rustc invokes the
+        # wrong tool. Pin the MSVC linker explicitly via cargo's env knob so
+        # PATH ordering doesn't matter.
+        run: |
+          $linkPath = (Get-Command link.exe |
+            Where-Object { $_.Source -notlike "*Git*usr*" } |
+            Select-Object -First 1).Source
+          if (-not $linkPath) { Write-Error "MSVC link.exe not found"; exit 1 }
+          Write-Host "MSVC linker: $linkPath"
+          Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linkPath"
+
+      - name: Generate libespeak-ng import lib from DLL (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $espeakDir = "C:\Program Files\eSpeak NG"
+          $dll = "$espeakDir\libespeak-ng.dll"
+          if (-not (Test-Path $dll)) {
+            Write-Error "espeak-ng DLL not found at $dll"
+            exit 1
+          }
+          # dumpbin / lib require the MSVC dev environment — activated above.
+          $libDir = "$env:RUNNER_TEMP\espeak-lib"
+          New-Item -ItemType Directory -Force -Path $libDir | Out-Null
+          $def = "$libDir\espeak-ng.def"
+          # LIBRARY must match the DLL filename (libespeak-ng.dll); OUT name
+          # must match `cargo:rustc-link-lib=espeak-ng` (no `lib` prefix on MSVC).
+          "LIBRARY libespeak-ng`r`nEXPORTS" | Set-Content -Encoding ASCII $def
+          # dumpbin /exports rows look like:
+          #     1    0 00001A20 espeak_Cancel
+          # — grab just the symbol name (4th column). Hex is case-insensitive
+          # in case a future toolchain flips output style.
+          $exports = dumpbin /exports $dll |
+            Select-String '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)' |
+            ForEach-Object { $_.Matches.Groups[1].Value }
+          # Zero/near-zero exports means the regex drifted from dumpbin's
+          # output; fail loudly here instead of letting lib.exe produce a
+          # valid-looking empty .lib that breaks later in the cargo link step.
+          if ($exports.Count -lt 10) {
+            Write-Error "dumpbin produced $($exports.Count) exports — regex drift? Raw output:"
+            dumpbin /exports $dll | Select-Object -First 30 | Write-Host
+            exit 1
+          }
+          $exports | Add-Content -Encoding ASCII $def
+          Write-Host "Generated .def with $($exports.Count) exports"
+          lib /def:$def /machine:x64 /out:"$libDir\espeak-ng.lib"
+          if (-not (Test-Path "$libDir\espeak-ng.lib")) {
+            Write-Error "lib.exe failed to produce espeak-ng.lib"
+            exit 1
+          }
+          # Linker path (build time) + DLL path (build- AND runtime for the
+          # smoke-test step below) + libclang for bindgen.
+          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$libDir;$env:LIB"
+          Add-Content -Path $env:GITHUB_PATH -Value $espeakDir
+          Add-Content -Path $env:GITHUB_ENV -Value "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
+
       - name: Build release binary
         run: cd rust && cargo build --release --target ${{ matrix.target }} --features ${{ matrix.features }} --no-default-features
       - name: Prepare artifact
@@ -86,11 +164,20 @@ jobs:
           if [ "${{ matrix.os }}" = "windows-latest" ]; then src="${src}.exe"; fi
           cp "$src" "${{ matrix.binary }}"
       - name: Smoke-test binary
-        if: matrix.os != 'windows-latest'
         shell: bash
+        # Assert `tts` is in the capabilities — otherwise a future feature-flag
+        # regression (e.g. matrix row silently drops `tts`) would ship a
+        # release binary missing `kesha say`. Past incident this guards
+        # against: v1.1.0 → v1.1.3, see CLAUDE.md "BUILD-ENGINE FEATURE
+        # MATRIX MIRRORS CARGO DEFAULTS".
         run: |
           chmod +x "${{ matrix.binary }}"
-          "./${{ matrix.binary }}" --capabilities-json
+          caps=$("./${{ matrix.binary }}" --capabilities-json)
+          echo "$caps"
+          echo "$caps" | grep -q '"tts"' || {
+            echo "expected tts in capabilities, got: $caps" >&2
+            exit 1
+          }
       - name: Inspect macOS dynamic deps
         if: matrix.os == 'macos-14'
         shell: bash
