@@ -21,6 +21,7 @@ const LANG_ID_FILES: &[&str] = &[
 
 /// A file in a model manifest. SHA256 is optional for legacy models; new
 /// TTS downloads verify it.
+#[cfg(feature = "tts")]
 #[derive(Debug, Clone)]
 pub struct ModelFile {
     pub rel_path: &'static str,

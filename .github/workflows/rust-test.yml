@@ -34,28 +34,11 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y espeak-ng libespeak-ng-dev
 
-      - name: Install espeak-ng + LLVM (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          # Chocolatey packages both espeak-ng (runtime + dev files) and llvm
-          # (libclang for bindgen). LLVM is normally on windows-latest runners
-          # already, but we install anyway so LIBCLANG_PATH is predictable.
-          choco install -y --no-progress espeak-ng llvm
-          # Espeak-ng install path — choco drops it in Program Files.
-          $espeak = "C:\Program Files\eSpeak NG"
-          if (-not (Test-Path "$espeak\libespeak-ng.dll")) {
-            Write-Error "espeak-ng DLL not found at $espeak"
-            exit 1
-          }
-          Write-Host "espeak-ng contents:"
-          Get-ChildItem $espeak | Select-Object Name, Length | Format-Table
-          # Tell the MSVC linker where to find libespeak-ng.lib.
-          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$espeak;$env:LIB"
-          # Tell the runtime loader where to find libespeak-ng.dll.
-          Add-Content -Path $env:GITHUB_PATH -Value $espeak
-          # bindgen (via espeakng-sys `clang-runtime`) needs LIBCLANG_PATH.
-          Add-Content -Path $env:GITHUB_ENV -Value "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
+      # Windows TTS support is blocked on generating an import lib for
+      # libespeak-ng — the choco package ships the DLL but no .lib, and
+      # espeakng-sys links dynamically via `cargo:rustc-link-lib=espeak-ng`,
+      # so MSVC linker hits LNK1181. Tracked in #136. Until that's sorted,
+      # Windows CI tests the ASR / lang-id path only (onnx feature).
 
       - name: Cache Kokoro spike models
         uses: actions/cache@v4
@@ -69,7 +52,13 @@ jobs:
 
       - name: Run tests (with real Kokoro + espeak)
         shell: bash
-        run: bash rust/ci/run-cargo-test.sh "$KOKORO_CACHE" "${{ runner.os }}"
+        # Windows skips tts — see #136 note in the install step above.
+        run: |
+          EXTRA=""
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            EXTRA="--no-default-features --features onnx"
+          fi
+          bash rust/ci/run-cargo-test.sh "$KOKORO_CACHE" "${{ runner.os }}" "$EXTRA"
 
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'
