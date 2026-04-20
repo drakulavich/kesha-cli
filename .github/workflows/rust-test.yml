@@ -9,7 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-14, ubuntu-latest]  # Windows follows after M2 (choco install espeak-ng path verification)
+        os: [macos-14, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
       KOKORO_CACHE: ${{ github.workspace }}/.kokoro-spike
@@ -34,6 +34,12 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y espeak-ng libespeak-ng-dev
 
+      # Windows TTS support is blocked on generating an import lib for
+      # libespeak-ng — the choco package ships the DLL but no .lib, and
+      # espeakng-sys links dynamically via `cargo:rustc-link-lib=espeak-ng`,
+      # so MSVC linker hits LNK1181. Tracked in #136. Until that's sorted,
+      # Windows CI tests the ASR / lang-id path only (onnx feature).
+
       - name: Cache Kokoro spike models
         uses: actions/cache@v4
         with:
@@ -41,12 +47,20 @@ jobs:
           key: kokoro-spike-v1-${{ runner.os }}
 
       - name: Download Kokoro model (if cache miss)
+        # Skip on Windows — TTS tests are gated out there (#136).
+        if: runner.os != 'Windows'
         shell: bash
         run: bash rust/ci/download-kokoro.sh "$KOKORO_CACHE"
 
       - name: Run tests (with real Kokoro + espeak)
         shell: bash
-        run: bash rust/ci/run-cargo-test.sh "$KOKORO_CACHE" "${{ runner.os }}"
+        # Windows skips tts — see #136 note in the install step above.
+        run: |
+          EXTRA=""
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            EXTRA="--no-default-features --features onnx"
+          fi
+          bash rust/ci/run-cargo-test.sh "$KOKORO_CACHE" "${{ runner.os }}" "$EXTRA"
 
       - name: Check formatting
         if: matrix.os == 'ubuntu-latest'

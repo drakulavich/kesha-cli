@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
 # Run `cargo test` with platform-specific env vars for espeak-ng linking
 # and Kokoro-model paths. Skips the real-inference tests if the cache is empty.
+# Optional $3 = extra cargo args (e.g. `--no-default-features --features onnx`
+# on Windows where TTS isn't yet linkable — see #136).
 set -euo pipefail
 
-KOKORO_CACHE="${1:?usage: run-cargo-test.sh <kokoro_cache> <runner_os>}"
+KOKORO_CACHE="${1:?usage: run-cargo-test.sh <kokoro_cache> <runner_os> [extra_cargo_args]}"
 RUNNER_OS="${2:?}"
+EXTRA_CARGO_ARGS="${3:-}"
 
 cd rust
 
@@ -16,6 +19,12 @@ case "$RUNNER_OS" in
     ;;
   Linux)
     # apt-installed libespeak-ng is discovered via pkg-config / default lib paths
+    :
+    ;;
+  Windows)
+    # No TTS libs on Windows yet (espeak-ng import library — #136).
+    # Caller passes --no-default-features --features onnx via $EXTRA_CARGO_ARGS
+    # so nothing platform-specific needs to be exported here.
     :
     ;;
   *)
@@ -32,4 +41,5 @@ else
   echo "Kokoro cache empty — gated tests will skip"
 fi
 
-cargo test --verbose
+# shellcheck disable=SC2086  # deliberate word-splitting of EXTRA_CARGO_ARGS
+cargo test --verbose $EXTRA_CARGO_ARGS

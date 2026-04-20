@@ -1,3 +1,5 @@
+#![cfg(feature = "tts")]
+
 use std::process::Command;
 
 #[test]
@@ -184,8 +186,10 @@ fn resolves_from_cache_when_installed() {
     let tmp = tempfile::tempdir().unwrap();
     let voices_dir = tmp.path().join("models/kokoro-82m/voices");
     std::fs::create_dir_all(&voices_dir).unwrap();
-    std::os::unix::fs::symlink(&model, tmp.path().join("models/kokoro-82m/model.onnx")).unwrap();
-    std::os::unix::fs::symlink(&voice, voices_dir.join("af_heart.bin")).unwrap();
+    // Copy instead of symlink so the test works cross-platform (Windows symlink
+    // creation requires elevated privileges and the os::unix API is not available).
+    std::fs::copy(&model, tmp.path().join("models/kokoro-82m/model.onnx")).unwrap();
+    std::fs::copy(&voice, voices_dir.join("af_heart.bin")).unwrap();
 
     let bin = env!("CARGO_BIN_EXE_kesha-engine");
     let out = Command::new(bin)
