@@ -203,15 +203,45 @@ pub fn install(no_cache: bool) -> Result<()> {
     // through and re-download). The per-file "OK (cached)" / "GET" log is
     // emitted by download_verified itself — intentionally no summary line
     // so the verbose-per-file output is the single source of truth.
-    for f in ASR_FILES {
-        download_verified(&cache, f, no_cache)?;
-    }
-    for f in LANG_ID_FILES {
-        download_verified(&cache, f, no_cache)?;
-    }
+    //
+    // ASR + lang-id downloads run concurrently through a bounded 4-worker
+    // pool (#178) so the HF round-trips overlap on a cold install. 8 files
+    // total (5 ASR + 3 lang-id); 4 workers keeps us inside HF's
+    // per-IP tolerance while filling the pipe on typical home bandwidth.
+    let manifest: Vec<&ModelFile> = ASR_FILES.iter().chain(LANG_ID_FILES.iter()).collect();
+    parallel_download(&cache, &manifest, no_cache)?;
 
     cleanup_legacy();
     Ok(())
+}
+
+/// Process-wide 4-worker pool reused across `install()` and
+/// `download_tts()` — building a fresh pool per call spawns 4
+/// `pthread_create`s and tears them down again for no reason. 4 workers
+/// keeps us inside HF's per-IP tolerance while filling the pipe.
+fn download_pool() -> &'static rayon::ThreadPool {
+    use std::sync::OnceLock;
+    static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+    POOL.get_or_init(|| {
+        rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .thread_name(|i| format!("kesha-dl-{i}"))
+            .build()
+            .expect("download thread pool build failed")
+    })
+}
+
+/// Kick off up to 4 concurrent `download_verified` calls against the
+/// manifest. A single hash-mismatch (or any other error) bails the whole
+/// install via `try_for_each` — matches the sequential contract from
+/// before, just faster on a cold network.
+fn parallel_download(cache: &Path, manifest: &[&ModelFile], no_cache: bool) -> Result<()> {
+    use rayon::prelude::*;
+    download_pool().install(|| {
+        manifest
+            .par_iter()
+            .try_for_each(|f| download_verified(cache, f, no_cache))
+    })
 }
 
 #[cfg(test)]
@@ -435,17 +465,16 @@ mod tts_tests {
 }
 
 /// Download every TTS model file: Kokoro English + Piper Russian.
-/// Each file is streamed to disk, then SHA256-verified.
+/// Each file is streamed to disk, then SHA256-verified. 4 concurrent
+/// downloads (#178) — 4 files total here, one HF round-trip per file.
 #[cfg(feature = "tts")]
 pub fn download_tts(no_cache: bool) -> Result<()> {
     log_mirror_once();
     let cache = cache_dir();
     let mut manifest = kokoro_manifest();
     manifest.extend(piper_ru_manifest());
-    for f in manifest {
-        download_verified(&cache, &f, no_cache)?;
-    }
-    Ok(())
+    let refs: Vec<&ModelFile> = manifest.iter().collect();
+    parallel_download(&cache, &refs, no_cache)
 }
 
 /// Streams a manifest entry to its `cache/<rel_path>` destination, then
