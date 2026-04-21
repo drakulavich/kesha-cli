@@ -128,16 +128,28 @@ export async function downloadEngine(
 
     mkdirSync(dirname(binPath), { recursive: true });
 
+    // Kick off the sidecar fetch concurrently with the engine fetch. Both
+    // target github.com release assets on independent paths with no data
+    // dependency, so overlapping the HTTP round-trips saves ~15-30s on a
+    // cold install. Sidecar is best-effort (404 on older engines, warn +
+    // continue) so a failure doesn't cascade into the engine path.
+    const sidecarPromise = downloadAVSpeechSidecar(binPath, engineVersion);
+
     let res: Response;
     try {
       res = await fetch(url, { redirect: "follow" });
     } catch (e) {
+      // The sidecar fetch is still in flight; let it settle to avoid an
+      // unhandled-rejection on the way out. Its failures are logged, not
+      // thrown, so awaiting is safe.
+      await sidecarPromise;
       throw new Error(
         `Failed to fetch engine binary: ${e instanceof Error ? e.message : e}\n  Fix: Check your network connection and try again`,
       );
     }
 
     if (!res.ok) {
+      await sidecarPromise;
       throw new Error(
         `Failed to download engine binary (HTTP ${res.status})\n  Fix: Check https://github.com/${GITHUB_REPO}/releases for available versions`,
       );
@@ -147,7 +159,7 @@ export async function downloadEngine(
     chmodSync(binPath, 0o755);
     writeInstalledEngineVersion(binPath, engineVersion);
     log.success(`Engine binary downloaded (v${engineVersion}).`);
-    await downloadAVSpeechSidecar(binPath, engineVersion);
+    await sidecarPromise;
   }
 
   if (backend) {
