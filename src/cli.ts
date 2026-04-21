@@ -1,8 +1,8 @@
 #!/usr/bin/env bun
 
 import { defineCommand, runMain } from "citty";
-import { encode as encodeToon } from "@toon-format/toon";
 import { detect } from "tinyld";
+import { formatToonOutput } from "./toon";
 import { transcribe } from "./lib";
 import { downloadEngine } from "./engine-install";
 import { detectAudioLanguageEngine, detectTextLanguageEngine, getEngineBinPath } from "./engine";
@@ -479,14 +479,12 @@ export function formatJsonOutput(results: TranscribeResult[]): string {
 }
 
 /**
- * TOON encoding of the same data shape as `formatJsonOutput` — compact,
- * LLM-token-efficient, and lossless round-trip through `@toon-format/toon`'s
- * `decode()`. See issue #138 for the motivation (multi-file voice-message
- * batches fed directly into agent prompts).
+ * TOON encoding of the same data shape as `formatJsonOutput` (#138).
+ * Implementation lives in `./toon` so the public API in `./lib` can
+ * re-export it without going through this file — avoids the runtime
+ * circular dependency that `lib.ts` → `cli.ts` would otherwise create.
  */
-export function formatToonOutput(results: TranscribeResult[]): string {
-  return encodeToon(results) + "\n";
-}
+export { formatToonOutput } from "./toon";
 
 if (import.meta.main) {
   await runCli();
