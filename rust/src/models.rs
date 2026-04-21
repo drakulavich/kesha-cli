@@ -473,6 +473,10 @@ fn download_verified(cache: &Path, f: &ModelFile, no_cache: bool) -> Result<()> 
     io::copy(&mut reader, &mut out)?;
     drop(out);
     if !verify_sha256(&target, f.sha256)? {
+        // Remove so the existence-only cache probes don't later resurrect
+        // unverified weights (#174). Best-effort — errors here are masked
+        // by the bail below which surfaces the real problem.
+        let _ = fs::remove_file(&target);
         anyhow::bail!("sha256 mismatch for {}", f.rel_path);
     }
     eprintln!("OK  {}", f.rel_path);
@@ -481,19 +485,14 @@ fn download_verified(cache: &Path, f: &ModelFile, no_cache: bool) -> Result<()> 
 
 fn verify_sha256(path: &Path, expected: &str) -> Result<bool> {
     use sha2::{Digest, Sha256};
-    let mut file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    // 64 KiB buffer keeps `io::copy` off its 8 KiB default so hashing a
+    // 2.4 GB model file stays IO-bound rather than syscall-bound.
+    let file = fs::File::open(path).with_context(|| format!("open {}", path.display()))?;
+    let mut reader = std::io::BufReader::with_capacity(65_536, file);
     let mut hasher = Sha256::new();
-    io::copy(&mut file, &mut hasher)?;
-    let actual = hex_encode(&hasher.finalize());
+    io::copy(&mut reader, &mut hasher)?;
+    let actual = format!("{:x}", hasher.finalize());
     Ok(actual.eq_ignore_ascii_case(expected))
-}
-
-fn hex_encode(bytes: &[u8]) -> String {
-    let mut s = String::with_capacity(bytes.len() * 2);
-    for b in bytes {
-        s.push_str(&format!("{b:02x}"));
-    }
-    s
 }
 
 fn cleanup_legacy() {
