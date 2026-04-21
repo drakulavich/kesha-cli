@@ -76,9 +76,22 @@ async function downloadAVSpeechSidecar(binPath: string, engineVersion: string): 
     return;
   }
 
-  await streamResponseToFile(res, sidecarPath, "say-avspeech sidecar");
-  chmodSync(sidecarPath, 0o755);
-  log.success("AVSpeech sidecar installed (macOS voices available).");
+  // Keep the best-effort contract: streamResponseToFile throws on an empty
+  // body and can fail mid-stream, and chmodSync can throw EPERM. Without
+  // this catch a stream/chmod failure would propagate through the tail
+  // `await sidecarPromise` in downloadEngine — converting a successful
+  // engine install into a thrown exception after log.success already
+  // announced it, which is exactly the regression the fetch/404 branches
+  // above protect against.
+  try {
+    await streamResponseToFile(res, sidecarPath, "say-avspeech sidecar");
+    chmodSync(sidecarPath, 0o755);
+    log.success("AVSpeech sidecar installed (macOS voices available).");
+  } catch (e) {
+    log.warn(
+      `AVSpeech sidecar install failed (${e instanceof Error ? e.message : e}); macos-* voices unavailable.`,
+    );
+  }
 }
 
 export interface InstallOptions {
@@ -139,17 +152,21 @@ export async function downloadEngine(
     try {
       res = await fetch(url, { redirect: "follow" });
     } catch (e) {
-      // The sidecar fetch is still in flight; let it settle to avoid an
-      // unhandled-rejection on the way out. Its failures are logged, not
-      // thrown, so awaiting is safe.
-      await sidecarPromise;
+      // Attach a no-op rejection handler to the sidecar promise as
+      // defense-in-depth. Today it can't reject (downloadAVSpeechSidecar
+      // catches all of its own errors), but if that contract ever drifts
+      // a bare dangling promise would surface as an unhandledRejection
+      // while we're throwing the engine error. Not waiting — the engine
+      // error is what the user needs to see now; sidecar's own logs
+      // will print whenever they finish.
+      sidecarPromise.catch(() => {});
       throw new Error(
         `Failed to fetch engine binary: ${e instanceof Error ? e.message : e}\n  Fix: Check your network connection and try again`,
       );
     }
 
     if (!res.ok) {
-      await sidecarPromise;
+      sidecarPromise.catch(() => {});
       throw new Error(
         `Failed to download engine binary (HTTP ${res.status})\n  Fix: Check https://github.com/${GITHUB_REPO}/releases for available versions`,
       );
