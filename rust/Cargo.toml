@@ -37,6 +37,9 @@ rubato = "2"
 # HTTP downloads
 ureq = "3"
 dirs = "6"
+# Bounded thread pool for concurrent model fetches (#178). Rayon's blocking
+# threads fit ureq's blocking API; we cap the pool at 4 workers ourselves.
+rayon = "1"
 
 # ONNX Runtime: always needed for audio language detection (speechbrain);
 # also drives ASR transcription when the `onnx` feature is enabled.
