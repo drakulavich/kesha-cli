@@ -104,6 +104,21 @@ pub fn apply_mirror(url: &str) -> String {
     url.to_string()
 }
 
+/// Emit the "Model mirror active: <url>" banner once per process so any
+/// download entry point (`install`, `download_tts`, future programmatic
+/// callers) surfaces the redirect. `OnceLock` keeps us quiet on the
+/// second-through-Nth call — a user running `kesha install --tts` would
+/// otherwise see the line twice.
+fn log_mirror_once() {
+    use std::sync::OnceLock;
+    static LOGGED: OnceLock<()> = OnceLock::new();
+    LOGGED.get_or_init(|| {
+        if let Some(base) = model_mirror() {
+            eprintln!("Model mirror active: {base}");
+        }
+    });
+}
+
 pub fn asr_model_dir() -> String {
     cache_dir()
         .join("models")
@@ -131,9 +146,7 @@ pub fn is_lang_id_cached(dir: &str) -> bool {
 }
 
 pub fn install(no_cache: bool) -> Result<()> {
-    if let Some(base) = model_mirror() {
-        eprintln!("Model mirror active: {base}");
-    }
+    log_mirror_once();
     // ASR models (ONNX backend only for now)
     let asr_dir = asr_model_dir();
     if no_cache || !is_asr_cached(&asr_dir) {
@@ -324,6 +337,9 @@ mod tts_tests {
     }
 }
 
+// Note: no SHA-256 verification on the ASR + lang-id paths yet (only the
+// TTS path does — see `download_verified`). Tracked as follow-up in #174;
+// an untrusted `KESHA_MODEL_MIRROR` can substitute weights silently here.
 fn download_hf_files(repo: &str, files: &[&str], dest_dir: &str) -> Result<()> {
     fs::create_dir_all(dest_dir)?;
     for file in files {
@@ -348,6 +364,7 @@ fn download_hf_files(repo: &str, files: &[&str], dest_dir: &str) -> Result<()> {
 /// Each file is streamed to disk, then SHA256-verified.
 #[cfg(feature = "tts")]
 pub fn download_tts(no_cache: bool) -> Result<()> {
+    log_mirror_once();
     let cache = cache_dir();
     let mut manifest = kokoro_manifest();
     manifest.extend(piper_ru_manifest());
