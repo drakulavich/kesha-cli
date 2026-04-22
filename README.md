@@ -64,6 +64,15 @@ Your agent receives a voice message in Telegram/WhatsApp/Slack, Kesha transcribe
 
 Manage the plugin with `openclaw plugins list`, `openclaw plugins disable kesha-voice-kit`, or `openclaw plugins uninstall kesha-voice-kit`.
 
+## Raycast Extension (macOS)
+
+Transcribe audio and speak clipboard text from Raycast's launcher without opening a terminal. Two commands:
+
+- **Transcribe Selected Audio** — pick an audio file in Finder, hit the command, transcript lands on your clipboard.
+- **Speak Clipboard** — synthesize whatever's on your clipboard and play it through the default output.
+
+Source + install instructions: [`raycast/`](raycast/). Tracked in [#145](https://github.com/drakulavich/kesha-voice-kit/issues/145); not yet on the Raycast Store — install via `ray develop` from the subdirectory.
+
 ## CLI Tools
 
 ```bash
