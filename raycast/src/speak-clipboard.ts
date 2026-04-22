@@ -1,7 +1,7 @@
 import { Clipboard, getPreferenceValues, showHUD } from "@raycast/api";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -46,29 +46,22 @@ export default async function Command() {
     await execFileAsync("/usr/bin/afplay", [wavPath]);
     await showHUD("✓ Played clipboard");
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (message.includes("ENOENT") && message.includes(keshaBin)) {
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    if (code === "ENOENT") {
       await showHUD(
-        `✗ \`${keshaBin}\` not found — install with bun add --global @drakulavich/kesha-voice-kit`,
+        `✗ \`${keshaBin}\` not found — see https://github.com/drakulavich/kesha-voice-kit#install`,
       );
     } else {
-      await showHUD(`✗ ${shorten(message, 140)}`);
+      // Don't echo the error message: Node's subprocess errors include the
+      // full argv, which for this command contains the clipboard payload
+      // (potentially a password, token, or anything else the user copied).
+      // A generic HUD + console.error keeps the failure debuggable without
+      // leaking clipboard bytes into macOS notification history.
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("speak-clipboard failed:", message);
+      await showHUD("✗ Speech synthesis failed (see extension logs)");
     }
   } finally {
-    try {
-      unlinkSync(wavPath);
-    } catch {
-      /* already gone */
-    }
-    try {
-      rmdirSync(dir);
-    } catch {
-      /* already gone */
-    }
+    rmSync(dir, { recursive: true, force: true });
   }
-}
-
-function shorten(s: string, n: number): string {
-  const flat = s.replace(/\s+/g, " ").trim();
-  return flat.length <= n ? flat : flat.slice(0, n - 1) + "…";
 }

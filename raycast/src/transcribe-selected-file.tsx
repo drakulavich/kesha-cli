@@ -39,13 +39,13 @@ export default function Command() {
   const [state, setState] = useState<State>({ status: "loading" });
 
   useEffect(() => {
-    // Guard against setState after unmount + strict-mode double-mount
-    // resurrecting a stale transcription. The subprocess itself is
-    // idempotent (same file → same transcript), so the worst a stray
-    // second run does is a duplicate `kesha --json` call — the setState
-    // gate stops the stale result from clobbering the real one.
+    // Abort the in-flight `kesha --json` subprocess if the view unmounts
+    // before transcription completes — ASR is seconds of CPU + RAM, so
+    // an orphaned process after Raycast dismissal is a real cost. Node's
+    // execFile honors the signal by sending SIGTERM to the child.
+    const controller = new AbortController();
     let mounted = true;
-    void transcribe(prefs.keshaBinPath?.trim() || "kesha")
+    void transcribe(prefs.keshaBinPath?.trim() || "kesha", controller.signal)
       .then((next) => {
         if (mounted) setState(next);
       })
@@ -56,6 +56,7 @@ export default function Command() {
       });
     return () => {
       mounted = false;
+      controller.abort();
     };
   }, []);
 
@@ -89,7 +90,10 @@ export default function Command() {
   );
 }
 
-async function transcribe(keshaBin: string): Promise<State> {
+async function transcribe(
+  keshaBin: string,
+  signal: AbortSignal,
+): Promise<State> {
   const items = await getSelectedFinderItems().catch(() => []);
   if (items.length === 0) {
     return {
@@ -116,6 +120,7 @@ async function transcribe(keshaBin: string): Promise<State> {
   try {
     const { stdout } = await execFileAsync(keshaBin, ["--json", path], {
       maxBuffer: 16 * 1024 * 1024,
+      signal,
     });
     const parsed = JSON.parse(stdout) as TranscribeResult[];
     if (!parsed.length) {
@@ -138,14 +143,20 @@ async function transcribe(keshaBin: string): Promise<State> {
     await Clipboard.copy(parsed[0].text);
     return { status: "ok", result: parsed[0], rawJson: stdout };
   } catch (err: unknown) {
+    // AbortError (view unmounted) — silently swallow, the view is gone.
+    if (err instanceof Error && err.name === "AbortError") {
+      return { status: "error", message: "cancelled" };
+    }
     await showToast({
       style: Toast.Style.Failure,
       title: "Transcription failed",
     });
     const message = err instanceof Error ? err.message : String(err);
-    const hint = message.includes("ENOENT")
-      ? `The \`kesha\` CLI wasn't found. Install it with \`bun add --global @drakulavich/kesha-voice-kit\` and run \`kesha install\`, or set the binary path in this extension's preferences.`
-      : undefined;
+    const code = (err as NodeJS.ErrnoException | undefined)?.code;
+    const hint =
+      code === "ENOENT"
+        ? "The `kesha` CLI was not found on PATH. Install it (see https://github.com/drakulavich/kesha-voice-kit#install) or set an absolute path in this extension's preferences."
+        : undefined;
     return { status: "error", message, hint };
   }
 }
