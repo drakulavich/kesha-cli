@@ -7,6 +7,9 @@ pub mod onnx;
 
 pub trait TranscribeBackend {
     fn transcribe(&mut self, audio_path: &str) -> Result<String>;
+    /// Transcribe a pre-decoded 16 kHz mono f32 waveform without re-reading
+    /// from disk. Used by the VAD-segmented path to feed per-segment slices.
+    fn transcribe_samples(&mut self, samples: &[f32]) -> Result<String>;
 }
 
 pub fn create_backend(model_dir: &str) -> Result<Box<dyn TranscribeBackend>> {
