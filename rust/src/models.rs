@@ -114,6 +114,28 @@ pub fn piper_ru_manifest() -> Vec<ModelFile> {
     ]
 }
 
+/// CharsiuG2P ByT5-tiny ONNX G2P backend (#123). CC-BY 4.0 — see NOTICES.
+#[cfg(feature = "tts")]
+pub fn g2p_onnx_manifest() -> Vec<ModelFile> {
+    vec![
+        ModelFile {
+            rel_path: "models/g2p/byt5-tiny/encoder_model.onnx",
+            url: "https://huggingface.co/klebster/g2p_multilingual_byT5_tiny_onnx/resolve/main/encoder_model.onnx",
+            sha256: "1ac7aca11845527873f9e0e870fbe1e3c3ac2cb009d8852230332d10541aab04",
+        },
+        ModelFile {
+            rel_path: "models/g2p/byt5-tiny/decoder_model.onnx",
+            url: "https://huggingface.co/klebster/g2p_multilingual_byT5_tiny_onnx/resolve/main/decoder_model.onnx",
+            sha256: "de32477aae14e254d4a7dee4b2c324fb39f93a0dc254181c5bfdd8fc67492919",
+        },
+        ModelFile {
+            rel_path: "models/g2p/byt5-tiny/decoder_with_past_model.onnx",
+            url: "https://huggingface.co/klebster/g2p_multilingual_byT5_tiny_onnx/resolve/main/decoder_with_past_model.onnx",
+            sha256: "fae30b9f3a8d935be01b32af851bae6d54f330813167073e84caf6d0a1890fcb",
+        },
+    ]
+}
+
 pub fn cache_dir() -> PathBuf {
     if let Ok(p) = std::env::var("KESHA_CACHE_DIR") {
         return PathBuf::from(p);
@@ -466,6 +488,33 @@ mod tts_tests {
     }
 
     #[test]
+    fn g2p_onnx_manifest_has_expected_files() {
+        let m = g2p_onnx_manifest();
+        assert_eq!(m.len(), 3, "expected 3 G2P files (encoder + 2 decoders)");
+        for stem in [
+            "encoder_model.onnx",
+            "decoder_model.onnx",
+            "decoder_with_past_model.onnx",
+        ] {
+            assert!(
+                m.iter().any(|f| f.rel_path.ends_with(stem)),
+                "manifest missing {stem}"
+            );
+        }
+        for f in &m {
+            assert_eq!(f.sha256.len(), 64, "{:?} sha256 not 64 hex chars", f);
+            assert!(
+                f.url.starts_with("https://huggingface.co/klebster/"),
+                "{f:?} url not on the pinned klebster repo — apply_mirror rewrites the HF host automatically"
+            );
+            assert!(
+                f.rel_path.starts_with("models/g2p/byt5-tiny/"),
+                "{f:?} rel_path must live under the per-model cache dir"
+            );
+        }
+    }
+
+    #[test]
     fn cache_dir_honors_env_var() {
         let guard = EnvGuard::set("KESHA_CACHE_DIR", "/tmp/kesha-test-xyz");
         assert_eq!(cache_dir(), PathBuf::from("/tmp/kesha-test-xyz"));
@@ -512,15 +561,16 @@ pub fn download_vad(no_cache: bool) -> Result<()> {
     parallel_download(&cache, &refs, no_cache)
 }
 
-/// Download every TTS model file: Kokoro English + Piper Russian.
+/// Download every TTS model file: Kokoro English + Piper Russian + G2P.
 /// Each file is streamed to disk, then SHA256-verified. 4 concurrent
-/// downloads (#178) — 4 files total here, one HF round-trip per file.
+/// downloads (#178) — 7 files now, one HF round-trip per file.
 #[cfg(feature = "tts")]
 pub fn download_tts(no_cache: bool) -> Result<()> {
     log_mirror_once();
     let cache = cache_dir();
     let mut manifest = kokoro_manifest();
     manifest.extend(piper_ru_manifest());
+    manifest.extend(g2p_onnx_manifest());
     let refs: Vec<&ModelFile> = manifest.iter().collect();
     parallel_download(&cache, &refs, no_cache)
 }
