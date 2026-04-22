@@ -1,5 +1,5 @@
 //! Silero VAD v5 ONNX wrapper — turns a 16 kHz mono f32 waveform into
-//! `(start_s, end_s)` speech segments (#128).
+//! `(start_s, end_s)` speech segments.
 //!
 //! Model I/O (confirmed by spike against `silero_vad.onnx` opset 16):
 //!   input   f32 [1, N]       — audio samples (N=512 for 16 kHz v5)
@@ -19,14 +19,15 @@ use ort::value::Value;
 use std::path::Path;
 
 pub const SAMPLE_RATE: u32 = 16_000;
-pub const FRAME_SAMPLES: usize = 512; // 32 ms @ 16 kHz
+/// 32 ms @ 16 kHz — Silero v5's mandated hop for 16 kHz audio.
+const FRAME_SAMPLES: usize = 512;
 /// v5 requires a 64-sample rolling context prepended to each 512-sample
 /// frame — the ONNX input is therefore length 576, even though the API
 /// nominally "takes 512 samples at 16 kHz". Missing this makes the model
 /// output ~0 for everything (matches upstream's Python `OnnxWrapper`).
 const CONTEXT_SAMPLES: usize = 64;
 const INPUT_SAMPLES: usize = CONTEXT_SAMPLES + FRAME_SAMPLES;
-const STATE_SHAPE: (usize, usize, usize) = (2, 1, 128);
+const STATE_LEN: usize = 2 * 128;
 
 #[derive(Debug, Clone, Copy)]
 pub struct VadConfig {
@@ -85,32 +86,33 @@ impl VadDetector {
     /// context prepended — see `CONTEXT_SAMPLES`) and collect the speech
     /// probability for each. The final partial frame is zero-padded.
     fn frame_probs(&mut self, audio: &[f32]) -> Result<Vec<f32>> {
-        let mut state = vec![0.0_f32; STATE_SHAPE.0 * STATE_SHAPE.1 * STATE_SHAPE.2];
         // Rolling 64-sample context starts as zeros and is updated to the
         // last 64 samples of each processed chunk (matches upstream's
         // `OnnxWrapper.__call__` in silero_vad/utils_vad.py).
-        let mut context = vec![0.0_f32; CONTEXT_SAMPLES];
-        let mut probs: Vec<f32> = Vec::with_capacity(audio.len().div_ceil(FRAME_SAMPLES));
+        let mut state = vec![0.0_f32; STATE_LEN];
         let mut input_buf = vec![0.0_f32; INPUT_SAMPLES];
-        let mut chunk_buf = vec![0.0_f32; FRAME_SAMPLES];
+        let mut probs: Vec<f32> = Vec::with_capacity(audio.len().div_ceil(FRAME_SAMPLES));
 
         for chunk in audio.chunks(FRAME_SAMPLES) {
-            // Zero-pad the last partial chunk in the chunk buffer itself so
-            // the context update below always sees a 512-sample slice.
-            chunk_buf[..chunk.len()].copy_from_slice(chunk);
+            // Shift the previous chunk's tail into the leading context slot,
+            // then stage the new chunk (zero-padding the last partial one).
+            let tail_start = INPUT_SAMPLES - CONTEXT_SAMPLES;
+            input_buf.copy_within(tail_start..INPUT_SAMPLES, 0);
+            let dst = &mut input_buf[CONTEXT_SAMPLES..];
+            dst[..chunk.len()].copy_from_slice(chunk);
             if chunk.len() < FRAME_SAMPLES {
-                chunk_buf[chunk.len()..].fill(0.0);
+                dst[chunk.len()..].fill(0.0);
             }
 
-            input_buf[..CONTEXT_SAMPLES].copy_from_slice(&context);
-            input_buf[CONTEXT_SAMPLES..].copy_from_slice(&chunk_buf);
-
+            // ort 2.0 `Value::from_array` requires owned ndarrays, so two
+            // Vec clones per frame are unavoidable here. The buffers above
+            // still get reused — the clones free as soon as `run` returns.
             let input = Value::from_array(Array2::<f32>::from_shape_vec(
                 (1, INPUT_SAMPLES),
                 input_buf.clone(),
             )?)?;
             let state_val =
-                Value::from_array(Array3::<f32>::from_shape_vec(STATE_SHAPE, state.clone())?)?;
+                Value::from_array(Array3::<f32>::from_shape_vec((2, 1, 128), state.clone())?)?;
             // `sr` is an ONNX scalar (rank 0) — `arr0` builds an Array0 which
             // serialises to a scalar tensor; passing rank-1 here would trip the
             // model into a silent shape mismatch on some ort builds.
@@ -126,11 +128,9 @@ impl VadDetector {
             probs.push(prob_data[0]);
 
             let (_state_shape, state_data) = outputs["stateN"].try_extract_tensor::<f32>()?;
-            state = state_data.to_vec();
-
-            // Context for the next iteration = last 64 samples of the
-            // (possibly zero-padded) current chunk.
-            context.copy_from_slice(&chunk_buf[FRAME_SAMPLES - CONTEXT_SAMPLES..]);
+            // In-place copy reuses the state Vec; previously `state = .to_vec()`
+            // freed and reallocated ~1 KB every 32 ms.
+            state.copy_from_slice(state_data);
         }
 
         Ok(probs)

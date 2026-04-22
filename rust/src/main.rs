@@ -31,8 +31,8 @@ enum Commands {
         /// Path to audio file
         audio_path: String,
         /// Run Silero VAD first; transcribe each detected speech segment
-        /// and stitch the results. Opt-in (#128) — requires the VAD model
-        /// to be installed (`kesha install --vad`).
+        /// and stitch the results. Requires the VAD model to be installed
+        /// (`kesha install --vad`).
         #[arg(long)]
         vad: bool,
     },
@@ -55,7 +55,7 @@ enum Commands {
         #[cfg(feature = "tts")]
         #[arg(long)]
         tts: bool,
-        /// Also install Silero VAD (~2.3MB) for long-audio preprocessing (#128).
+        /// Also install Silero VAD (~2.3MB) for long-audio preprocessing.
         #[arg(long)]
         vad: bool,
     },

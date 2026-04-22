@@ -3,8 +3,8 @@ import { isEngineInstalled, transcribeEngine } from "./engine";
 export interface TranscribeOptions {
   silent?: boolean;
   /** Run Silero VAD preprocessing: segment the audio first, then transcribe
-   *  each speech span and stitch results (#128). Opt-in — requires the VAD
-   *  model to be installed (`kesha install --vad`). */
+   *  each speech span and stitch results. Opt-in — requires the VAD model
+   *  to be installed (`kesha install --vad`). */
   vad?: boolean;
 }
 

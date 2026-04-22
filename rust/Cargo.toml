@@ -15,7 +15,9 @@ path = "src/main.rs"
 [features]
 default = ["onnx", "tts"]
 # ASR backend selection. Language detection always uses ONNX regardless.
-coreml = ["dep:fluidaudio-rs"]
+# `tempfile` is pulled in by `coreml` because the FluidAudio backend writes
+# a temp WAV per VAD segment (`fluidaudio-rs 0.1.0` lacks transcribe_samples).
+coreml = ["dep:fluidaudio-rs", "dep:tempfile"]
 onnx = []
 tts = ["dep:hound", "dep:espeakng-sys", "dep:thiserror", "dep:ssml-parser"]
 # macOS-only AVSpeechSynthesizer backend for `macos-*` voices (#141).
@@ -57,9 +59,10 @@ thiserror = { version = "1", optional = true }
 sha2 = "0.10"
 ssml-parser = { version = "0.1", optional = true }
 
-tempfile = "3"
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
+tempfile = "3"
 
 [profile.release]
 lto = true

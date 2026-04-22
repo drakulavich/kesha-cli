@@ -47,7 +47,7 @@ const ASR_FILES: &[ModelFile] = &[
 ];
 
 /// Silero VAD v5 ONNX (snakers4/silero-vad). Single 2.3 MB file; not cached
-/// on HuggingFace so we pull from the GitHub raw URL. Hash pinned (#128).
+/// on HuggingFace so we pull from the GitHub raw URL.
 ///
 /// NOTE: `apply_mirror` only rewrites `huggingface.co` URLs, so this one
 /// passes through unchanged even with `KESHA_MODEL_MIRROR` set. Operators

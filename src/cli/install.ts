@@ -97,7 +97,7 @@ export const installCommand = defineCommand({
     },
     vad: {
       type: "boolean",
-      description: "Also install Silero VAD (~2.3MB) for long-audio preprocessing (#128)",
+      description: "Also install Silero VAD (~2.3MB) for long-audio preprocessing",
       default: false,
     },
   },

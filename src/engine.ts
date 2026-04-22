@@ -43,7 +43,7 @@ async function runEngine(args: string[]): Promise<{ stdout: string; stderr: stri
 }
 
 export interface TranscribeEngineOptions {
-  /** Run Silero VAD preprocessing and transcribe each speech segment (#128). */
+  /** Run Silero VAD preprocessing and transcribe each speech segment. */
   vad?: boolean;
 }
 

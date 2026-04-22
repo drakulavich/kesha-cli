@@ -9,14 +9,8 @@ use crate::models;
 use crate::vad::{VadConfig, VadDetector, SAMPLE_RATE as VAD_SAMPLE_RATE};
 
 pub fn transcribe(audio_path: &str) -> Result<String> {
-    let model_dir = models::asr_model_dir();
+    let model_dir = ensure_asr_installed()?;
     dtrace!("asr::model_dir {}", model_dir);
-    if !models::is_asr_cached(&model_dir) {
-        anyhow::bail!(
-            "Error: No transcription models installed\n\n\
-             Please run: kesha install"
-        );
-    }
     let t0 = Instant::now();
     let mut be = backend::create_backend(&model_dir)?;
     dtrace!("asr::backend_loaded dt={}ms", t0.elapsed().as_millis());
@@ -30,20 +24,13 @@ pub fn transcribe(audio_path: &str) -> Result<String> {
     Ok(out)
 }
 
-/// VAD-preprocessed transcription (#128): segment the audio with Silero
-/// VAD, transcribe each speech span independently, stitch with spaces.
+/// VAD-preprocessed transcription: segment the audio with Silero VAD,
+/// transcribe each speech span independently, stitch with spaces.
 ///
-/// Short/all-silence inputs fall back to a single full-file transcription
-/// so the caller gets a sensible result rather than an empty string —
-/// VAD is preprocessing, not gatekeeping.
+/// All-silence inputs fall back to a single full-file pass (with a stderr
+/// warning) so a misconfigured threshold never silently drops input.
 pub fn transcribe_with_vad(audio_path: &str, cfg: VadConfig) -> Result<String> {
-    let model_dir = models::asr_model_dir();
-    if !models::is_asr_cached(&model_dir) {
-        anyhow::bail!(
-            "Error: No transcription models installed\n\n\
-             Please run: kesha install"
-        );
-    }
+    let model_dir = ensure_asr_installed()?;
     let vad_dir = models::vad_model_dir();
     if !models::is_vad_cached(&vad_dir) {
         anyhow::bail!(
@@ -72,12 +59,11 @@ pub fn transcribe_with_vad(audio_path: &str, cfg: VadConfig) -> Result<String> {
 
     let mut be = backend::create_backend(&model_dir)?;
 
-    // No speech detected → fall back to full-file pass. Preprocessing
-    // shouldn't silently drop inputs; let the ASR decide whether there's
-    // anything to say.
     if segments.is_empty() {
-        dtrace!("vad::no_segments fallback=full_file");
-        return be.transcribe(audio_path);
+        eprintln!(
+            "warning: VAD produced no speech segments; transcribing full file (consider lowering --vad threshold or skipping --vad)"
+        );
+        return be.transcribe_samples(&samples);
     }
 
     let sr = VAD_SAMPLE_RATE as f32;
@@ -105,8 +91,7 @@ pub fn transcribe_with_vad(audio_path: &str, cfg: VadConfig) -> Result<String> {
                 }
             }
             Err(e) => {
-                // A single too-short / failing segment shouldn't kill the
-                // whole transcript — log and keep going.
+                // One failing segment shouldn't kill the whole transcript.
                 eprintln!(
                     "warning: VAD segment {:.2}-{:.2}s failed: {e}",
                     start_s, end_s
@@ -116,4 +101,17 @@ pub fn transcribe_with_vad(audio_path: &str, cfg: VadConfig) -> Result<String> {
     }
 
     Ok(transcripts.join(" "))
+}
+
+/// Returns the cached ASR model dir or bails with the install hint.
+/// Shared by the plain and VAD-preprocessed paths.
+fn ensure_asr_installed() -> Result<String> {
+    let model_dir = models::asr_model_dir();
+    if !models::is_asr_cached(&model_dir) {
+        anyhow::bail!(
+            "Error: No transcription models installed\n\n\
+             Please run: kesha install"
+        );
+    }
+    Ok(model_dir)
 }

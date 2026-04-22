@@ -29,11 +29,11 @@ impl TranscribeBackend for FluidAudioBackend {
     }
 
     /// `fluidaudio-rs 0.1.0` ships without `transcribe_samples` (available
-    /// on main, not yet published), so the VAD per-segment path (#128)
-    /// writes each slice to a temp WAV and calls `transcribe_file`. Temp
-    /// I/O for a 16 kHz mono f32 slice is negligible vs the ~50-200 ms
-    /// ASR cost. Drop this shim and call `transcribe_samples` directly
-    /// once fluidaudio-rs cuts a release that exposes it.
+    /// on main, not yet published), so this shim writes the slice to a
+    /// temp WAV and calls `transcribe_file`. Temp I/O for a 16 kHz mono f32
+    /// slice is negligible vs the ~50-200 ms ASR cost. Drop this shim and
+    /// delegate to `transcribe_samples` directly once upstream cuts a
+    /// release that exposes it.
     fn transcribe_samples(&mut self, samples: &[f32]) -> Result<String> {
         let tmp = tempfile::Builder::new()
             .prefix("kesha-vad-segment-")
