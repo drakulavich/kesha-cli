@@ -1,13 +1,11 @@
-import { isEngineInstalled, transcribeEngine } from "./engine";
+import { isEngineInstalled, transcribeEngine, type VadMode } from "./engine";
+
+export type { VadMode };
 
 export interface TranscribeOptions {
   silent?: boolean;
-  /** Silero VAD preprocessing mode:
-   *  - `true` — force on (requires `kesha install --vad`)
-   *  - `false` — force off, even for long audio
-   *  - `undefined` (default) — auto-on when audio ≥ 120 s and VAD is installed
-   *  See #187. */
-  vad?: boolean;
+  /** Silero VAD preprocessing selector. Defaults to `"auto"`. */
+  vad?: VadMode;
 }
 
 export async function transcribe(audioPath: string, opts: TranscribeOptions = {}): Promise<string> {

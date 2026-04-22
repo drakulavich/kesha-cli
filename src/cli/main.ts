@@ -99,7 +99,7 @@ export const mainCommand = defineCommand({
       log.error("--vad and --no-vad are mutually exclusive.");
       process.exit(2);
     }
-    const vadMode: boolean | undefined = args.vad ? true : args["no-vad"] ? false : undefined;
+    const vadMode = args.vad ? "on" : args["no-vad"] ? "off" : "auto";
 
     if (files.length === 0) {
       log.info("Usage: kesha <audio_file> [audio_file ...]\n       kesha install [--no-cache]\n       kesha status");

@@ -9,9 +9,16 @@ use crate::models;
 use crate::vad::{VadConfig, VadDetector, SAMPLE_RATE as VAD_SAMPLE_RATE};
 
 /// Duration at which the `Auto` VAD mode flips to VAD preprocessing.
-/// Chosen to match the discussion in #128: voice messages (<30 s) and short
-/// clips don't benefit, meetings and lectures (>2 min) do.
-pub const AUTO_VAD_MIN_SECONDS: f32 = 120.0;
+/// Voice messages (<30 s) and short clips don't benefit; meetings and
+/// lectures (>2 min) do.
+const AUTO_VAD_MIN_SECONDS: f32 = 120.0;
+
+/// File-size floor below which `Auto` mode skips the duration probe entirely.
+/// Any audio <120 s at a plausible bitrate weighs well over this threshold;
+/// the guard keeps the hot path cheap for voice messages and bounds MP3
+/// worst-case probe cost (symphonia scans the file when a Xing header is
+/// absent — can reach seconds on large CBR files).
+const AUTO_VAD_MIN_FILE_SIZE: u64 = 200_000;
 
 /// Caller-requested VAD behaviour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -24,6 +31,19 @@ pub enum VadMode {
     On,
     /// Force VAD off regardless of duration or install state.
     Off,
+}
+
+impl VadMode {
+    /// Derive the mode from the two mutually-exclusive CLI flags. `(true, true)`
+    /// should be caught by clap's `conflicts_with` before we get here; we still
+    /// resolve it deterministically (prefer `On`) rather than panicking.
+    pub fn from_flags(vad: bool, no_vad: bool) -> Self {
+        match (vad, no_vad) {
+            (true, _) => Self::On,
+            (_, true) => Self::Off,
+            _ => Self::Auto,
+        }
+    }
 }
 
 /// Pure decision function so the auto-trigger rules can be unit-tested
@@ -55,7 +75,7 @@ pub fn transcribe(audio_path: &str, mode: VadMode) -> Result<String> {
 
     // `Auto` needs a duration probe first. `On`/`Off` are deterministic.
     let duration = match mode {
-        VadMode::Auto => audio::probe_duration_seconds(audio_path).unwrap_or(None),
+        VadMode::Auto => probe_duration_if_plausible(audio_path),
         _ => None,
     };
     let decision = decide(mode, duration, vad_installed);
@@ -177,6 +197,25 @@ fn transcribe_via_vad(
     }
 
     Ok(transcripts.join(" "))
+}
+
+/// Probe audio duration for the `Auto` decision, gated on a cheap
+/// file-size floor. Files too small to plausibly be ≥ 120 s skip the
+/// probe entirely. Probe failures log via `dtrace!` and return `None`
+/// — the decode path will surface the real error, if any, shortly.
+fn probe_duration_if_plausible(path: &str) -> Option<f32> {
+    if let Ok(meta) = std::fs::metadata(path) {
+        if meta.len() < AUTO_VAD_MIN_FILE_SIZE {
+            return None;
+        }
+    }
+    match audio::probe_duration_seconds(path) {
+        Ok(d) => d,
+        Err(e) => {
+            dtrace!("asr::probe_failed path={path} err={e}");
+            None
+        }
+    }
 }
 
 /// Returns the cached ASR model dir or bails with the install hint.

@@ -308,11 +308,7 @@ fn main() -> Result<()> {
             vad,
             no_vad,
         }) => {
-            let mode = match (vad, no_vad) {
-                (true, _) => transcribe::VadMode::On,
-                (_, true) => transcribe::VadMode::Off,
-                _ => transcribe::VadMode::Auto,
-            };
+            let mode = transcribe::VadMode::from_flags(vad, no_vad);
             let text = transcribe::transcribe(&audio_path, mode)?;
             println!("{}", text);
         }
