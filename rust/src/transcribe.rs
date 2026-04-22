@@ -233,6 +233,100 @@ fn ensure_asr_installed() -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
+
+    /// Write a 16-bit PCM mono WAV of `seconds` silence. Symphonia's probe
+    /// reads `n_frames` from the WAV data-chunk size, so these files produce
+    /// real durations without needing an audio-generation crate. The actual
+    /// samples are zeros — a proper file, not a spoofed header, so the
+    /// file-size guard in `probe_duration_if_plausible` sees real bytes.
+    fn write_silent_pcm16_wav(
+        path: &std::path::Path,
+        seconds: u32,
+        sample_rate: u32,
+    ) -> std::io::Result<()> {
+        let n_samples = (seconds as u64) * (sample_rate as u64);
+        let data_bytes = (n_samples * 2) as u32;
+        let mut f = std::fs::File::create(path)?;
+        f.write_all(b"RIFF")?;
+        f.write_all(&(36u32 + data_bytes).to_le_bytes())?;
+        f.write_all(b"WAVE")?;
+        f.write_all(b"fmt ")?;
+        f.write_all(&16u32.to_le_bytes())?;
+        f.write_all(&1u16.to_le_bytes())?;
+        f.write_all(&1u16.to_le_bytes())?;
+        f.write_all(&sample_rate.to_le_bytes())?;
+        f.write_all(&(sample_rate * 2).to_le_bytes())?;
+        f.write_all(&2u16.to_le_bytes())?;
+        f.write_all(&16u16.to_le_bytes())?;
+        f.write_all(b"data")?;
+        f.write_all(&data_bytes.to_le_bytes())?;
+        let zeros = vec![0u8; (n_samples * 2) as usize];
+        f.write_all(&zeros)?;
+        Ok(())
+    }
+
+    #[test]
+    fn auto_mode_long_wav_routes_to_vad_when_installed() {
+        // End-to-end test of the auto-trigger: 121-second WAV → probe reads
+        // duration → `decide()` picks VAD (when installed) or hint path.
+        let tmp = tempfile::Builder::new()
+            .prefix("kesha-auto-vad-long-")
+            .suffix(".wav")
+            .tempfile()
+            .unwrap();
+        write_silent_pcm16_wav(tmp.path(), 121, 16_000).unwrap();
+        let duration = probe_duration_if_plausible(tmp.path().to_str().unwrap());
+        let secs = duration.expect("long WAV should probe to Some duration");
+        assert!((120.0..122.0).contains(&secs), "expected ~121s, got {secs}");
+        assert_eq!(
+            decide(VadMode::Auto, duration, true),
+            VadDecision::Vad,
+            "long audio + installed → Vad"
+        );
+        assert_eq!(
+            decide(VadMode::Auto, duration, false),
+            VadDecision::PlainWithHint,
+            "long audio + not installed → Plain + hint"
+        );
+    }
+
+    #[test]
+    fn probe_skipped_for_files_below_size_guard() {
+        // 1 s of 16 kHz mono 16-bit PCM = ~32 KB, well below the 200 KB guard.
+        // The probe should short-circuit and return None without touching
+        // symphonia at all.
+        let tmp = tempfile::Builder::new()
+            .prefix("kesha-auto-vad-tiny-")
+            .suffix(".wav")
+            .tempfile()
+            .unwrap();
+        write_silent_pcm16_wav(tmp.path(), 1, 16_000).unwrap();
+        assert!(std::fs::metadata(tmp.path()).unwrap().len() < AUTO_VAD_MIN_FILE_SIZE);
+        assert_eq!(
+            probe_duration_if_plausible(tmp.path().to_str().unwrap()),
+            None,
+        );
+    }
+
+    #[test]
+    fn probe_returns_none_for_missing_or_invalid_file() {
+        // Missing file → metadata fails, probe fails, returns None (decide
+        // then treats as Auto/short → Plain).
+        assert_eq!(
+            probe_duration_if_plausible("/nonexistent/path/to/audio.wav"),
+            None
+        );
+    }
+
+    #[test]
+    fn from_flags_maps_cli_arguments_to_modes() {
+        assert_eq!(VadMode::from_flags(true, false), VadMode::On);
+        assert_eq!(VadMode::from_flags(false, true), VadMode::Off);
+        assert_eq!(VadMode::from_flags(false, false), VadMode::Auto);
+        // Should-be-unreachable (clap rejects), but resolve deterministically.
+        assert_eq!(VadMode::from_flags(true, true), VadMode::On);
+    }
 
     #[test]
     fn on_mode_always_uses_vad_regardless_of_other_inputs() {
