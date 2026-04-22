@@ -22,7 +22,7 @@ smoke-test: ## Run smoke tests against fixtures
 	kesha install
 	bun scripts/smoke-test.ts
 
-smoke-test-tts: ## Run smoke tests with TTS (requires espeak-ng)
+smoke-test-tts: ## Run smoke tests with TTS
 	bun link @drakulavich/kesha-voice-kit
 	kesha install --tts
 	bun scripts/smoke-test.ts --tts

@@ -19,7 +19,7 @@ default = ["onnx", "tts"]
 # a temp WAV per VAD segment (`fluidaudio-rs 0.1.0` lacks transcribe_samples).
 coreml = ["dep:fluidaudio-rs", "dep:tempfile"]
 onnx = []
-tts = ["dep:hound", "dep:espeakng-sys", "dep:thiserror", "dep:ssml-parser"]
+tts = ["dep:hound", "dep:thiserror", "dep:ssml-parser"]
 # macOS-only AVSpeechSynthesizer backend for `macos-*` voices (#141).
 # Opt-in — builds a Swift sidecar via swiftc in build.rs. Silently no-op on
 # non-macOS targets even when enabled.
@@ -52,9 +52,8 @@ ndarray = { version = "0.17" }
 fluidaudio-rs = { version = "0.1", optional = true }
 audioadapter-buffers = "3.0.0"
 
-# TTS (Kokoro + espeak-ng + SSML parser)
+# TTS (Kokoro + SSML parser; G2P via ONNX ByT5 at runtime, see #123)
 hound = { version = "3.5", optional = true }
-espeakng-sys = { version = "0.3", features = ["clang-runtime"], optional = true }
 thiserror = { version = "1", optional = true }
 sha2 = "0.10"
 ssml-parser = { version = "0.1", optional = true }

@@ -51,7 +51,7 @@ export const sayCommand = defineCommand({
   args: {
     text: { type: "positional", required: false, description: "Text to speak (stdin if omitted)" },
     voice: { type: "string", description: "Voice id, e.g. en-af_heart" },
-    lang: { type: "string", description: "espeak language code (default en-us)" },
+    lang: { type: "string", description: "BCP 47 language code (default en-us)" },
     out: { type: "string", description: "Write WAV to file instead of stdout" },
     rate: { type: "string", description: "Speaking rate 0.5–2.0", default: "1.0" },
     "list-voices": { type: "boolean", description: "List installed voices and exit" },

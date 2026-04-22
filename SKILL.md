@@ -73,15 +73,10 @@ Output: WAV mono float32. `--out <path>` writes to a file instead of stdout.
 ```bash
 bun add --global @drakulavich/kesha-voice-kit    # or: npm i -g @drakulavich/kesha-voice-kit
 kesha install                                    # downloads engine (~350 MB)
-kesha install --tts                              # adds Kokoro + Piper RU (~390 MB more, for TTS)
+kesha install --tts                              # adds Kokoro + Piper RU + ONNX G2P (~490 MB more, for TTS)
 ```
 
-One-time runtime prereq for TTS on each platform:
-- macOS: `brew install espeak-ng`
-- Linux: `sudo apt install espeak-ng`
-- Windows: `choco install espeak-ng`
-
-`macos-*` voices need no install — they use voices already on the Mac.
+No system deps — G2P runs as ONNX alongside Kokoro/Piper. `macos-*` voices need no install either — they use voices already on the Mac.
 
 ## Supported languages
 

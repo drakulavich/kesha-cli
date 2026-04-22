@@ -26,35 +26,15 @@ jobs:
         with:
           workspaces: rust
 
-      - name: Install espeak-ng (macOS)
-        if: runner.os == 'macOS'
-        run: brew install espeak-ng
-
-      - name: Install espeak-ng (Linux)
-        if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y espeak-ng libespeak-ng-dev
-
-      # Windows TTS setup (#136): chocolatey ships the DLL only, so we
-      # synthesize an import lib from the DLL's export table using MSVC's
-      # dumpbin + lib tools, then point cargo at it for the linker step.
-      # espeakng-sys ships its own C headers in the crate, so nothing to
-      # install for bindgen other than LLVM's libclang.
-      - name: Install espeak-ng + LLVM (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: choco install -y --no-progress espeak-ng llvm
-
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
 
       - name: Pin MSVC linker (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        # Windows runners ship Git for Windows with a `link` binary (GNU
-        # coreutils) on PATH via /c/Program Files/Git/usr/bin. When `shell:
-        # bash` is used, it shadows MSVC's link.exe and rustc invokes the
-        # wrong tool. Pin the MSVC linker explicitly via cargo's env knob so
-        # PATH ordering doesn't matter.
+        # Git for Windows ships a GNU `link.exe` under /c/Program Files/Git/usr/bin
+        # that shadows MSVC's link.exe under `shell: bash`. Pin via cargo's env
+        # knob so PATH ordering doesn't matter.
         run: |
           $linkPath = (Get-Command link.exe |
             Where-Object { $_.Source -notlike "*Git*usr*" } |
@@ -63,61 +43,17 @@ jobs:
           Write-Host "MSVC linker: $linkPath"
           Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linkPath"
 
-      - name: Generate libespeak-ng import lib from DLL (Windows)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $espeakDir = "C:\Program Files\eSpeak NG"
-          $dll = "$espeakDir\libespeak-ng.dll"
-          if (-not (Test-Path $dll)) {
-            Write-Error "espeak-ng DLL not found at $dll"
-            exit 1
-          }
-          # dumpbin / lib require the MSVC dev environment — activated above.
-          $libDir = "$env:RUNNER_TEMP\espeak-lib"
-          New-Item -ItemType Directory -Force -Path $libDir | Out-Null
-          $def = "$libDir\espeak-ng.def"
-          # LIBRARY must match the DLL filename (libespeak-ng.dll); OUT name
-          # must match `cargo:rustc-link-lib=espeak-ng` (no `lib` prefix on MSVC).
-          "LIBRARY libespeak-ng`r`nEXPORTS" | Set-Content -Encoding ASCII $def
-          # dumpbin /exports rows look like:
-          #     1    0 00001A20 espeak_Cancel
-          # — grab just the symbol name (4th column). Hex is case-insensitive
-          # in case a future toolchain flips output style.
-          $exports = dumpbin /exports $dll |
-            Select-String '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)' |
-            ForEach-Object { $_.Matches.Groups[1].Value }
-          # Zero/near-zero exports means the regex drifted from dumpbin's
-          # output; fail loudly here instead of letting lib.exe produce a
-          # valid-looking empty .lib that breaks later in the cargo link step.
-          if ($exports.Count -lt 10) {
-            Write-Error "dumpbin produced $($exports.Count) exports — regex drift? Raw output:"
-            dumpbin /exports $dll | Select-Object -First 30 | Write-Host
-            exit 1
-          }
-          $exports | Add-Content -Encoding ASCII $def
-          Write-Host "Generated .def with $($exports.Count) exports"
-          lib /def:$def /machine:x64 /out:"$libDir\espeak-ng.lib"
-          if (-not (Test-Path "$libDir\espeak-ng.lib")) {
-            Write-Error "lib.exe failed to produce espeak-ng.lib"
-            exit 1
-          }
-          # Linker path (build time) + DLL path (runtime) + libclang for bindgen.
-          Add-Content -Path $env:GITHUB_ENV -Value "LIB=$libDir;$env:LIB"
-          Add-Content -Path $env:GITHUB_PATH -Value $espeakDir
-          Add-Content -Path $env:GITHUB_ENV -Value "LIBCLANG_PATH=C:\Program Files\LLVM\bin"
-
       - name: Cache Kokoro spike models
         uses: actions/cache@v5
         with:
           path: ${{ env.KOKORO_CACHE }}
-          key: kokoro-spike-v1-${{ runner.os }}
+          key: kokoro-spike-v2-${{ runner.os }}
 
       - name: Download Kokoro model (if cache miss)
         shell: bash
         run: bash rust/ci/download-kokoro.sh "$KOKORO_CACHE"
 
-      - name: Run tests (with real Kokoro + espeak)
+      - name: Run tests (with real Kokoro)
         shell: bash
         run: bash rust/ci/run-cargo-test.sh "$KOKORO_CACHE" "${{ runner.os }}"
 
