@@ -60,9 +60,16 @@ pub fn transcribe_with_vad(audio_path: &str, cfg: VadConfig) -> Result<String> {
     let mut be = backend::create_backend(&model_dir)?;
 
     if segments.is_empty() {
-        eprintln!(
-            "warning: VAD produced no speech segments; transcribing full file (consider lowering --vad threshold or skipping --vad)"
-        );
+        // Audio shorter than the configured min_speech window can't ever
+        // produce a segment — fall back silently. Only warn when a real
+        // threshold miss / unexpected silence triggered the empty result.
+        let min_speech_samples =
+            (cfg.min_speech_ms as u64 * VAD_SAMPLE_RATE as u64 / 1000) as usize;
+        if samples.len() >= min_speech_samples {
+            eprintln!(
+                "warning: VAD produced no speech segments; transcribing full file (consider lowering --vad threshold or skipping --vad)"
+            );
+        }
         return be.transcribe_samples(&samples);
     }
 
