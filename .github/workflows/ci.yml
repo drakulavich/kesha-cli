@@ -88,9 +88,6 @@ jobs:
       - name: 🍞 Setup Bun workspace
         uses: ./.github/actions/setup-bun
 
-      - name: Install espeak-ng
-        run: brew install espeak-ng
-
       - name: 🔊 Setup integration backend
         uses: ./.github/actions/install-parakeet-backend
         with:
@@ -134,9 +131,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-
-      - name: Install espeak-ng
-        run: brew install espeak-ng
 
       - name: 💾 Cache Kokoro models
         uses: actions/cache@v5

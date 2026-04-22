@@ -110,10 +110,7 @@ Auto-triggers at 120 s so voice messages (< 30 s of near-pure speech) stay on th
 Kesha speaks back via Kokoro-82M (English) and Piper (Russian). Voice is auto-picked from the input text's language — `en` routes to Kokoro, `ru` to Piper. Pass `--voice` to override.
 
 ```bash
-brew install espeak-ng              # one-time system dep — macOS
-# Linux:   sudo apt install espeak-ng
-# Windows: choco install espeak-ng  (puts libespeak-ng.dll on PATH)
-kesha install --tts                 # ~390MB (Kokoro + Piper RU, opt-in)
+kesha install --tts                 # ~490MB (Kokoro + Piper RU + ONNX G2P, opt-in)
 kesha say "Hello, world" > hello.wav
 kesha say "Привет, мир" > privet.wav    # auto-routes to ru-denis
 echo "long text" | kesha say > reply.wav
@@ -122,7 +119,7 @@ kesha say --voice en-af_heart "text"    # explicit voice overrides auto-routing
 kesha say --list-voices
 ```
 
-Output format: WAV mono float32 (24 kHz for Kokoro, 22.05 kHz for Piper). OGG/Opus and MP3 are tracked in follow-up issues. Static-linking of `espeak-ng` to remove the system dep is [#124](https://github.com/drakulavich/kesha-voice-kit/issues/124).
+Output format: WAV mono float32 (24 kHz for Kokoro, 22.05 kHz for Piper). OGG/Opus and MP3 are tracked in follow-up issues. Grapheme-to-phoneme runs entirely through ONNX (CharsiuG2P ByT5-tiny, [#123](https://github.com/drakulavich/kesha-voice-kit/issues/123)) — no `espeak-ng` system dep.
 
 **Supported voices:**
 - English: `en-af_heart` (default), plus any Kokoro voice you download into `~/.cache/kesha/models/kokoro-82m/voices/`
@@ -131,7 +128,7 @@ Output format: WAV mono float32 (24 kHz for Kokoro, 22.05 kHz for Piper). OGG/Op
 
 ### macOS system voices
 
-`kesha say --voice macos-*` routes through `AVSpeechSynthesizer` on macOS, so you get voice synthesis for free — no 390 MB TTS bundle, no `espeak-ng` dep. The sidecar binary ships alongside `kesha-engine` on darwin-arm64 releases (#141); `kesha install` places both in `~/.cache/kesha/bin/`.
+`kesha say --voice macos-*` routes through `AVSpeechSynthesizer` on macOS, so you get voice synthesis for free — no 490 MB TTS bundle. The sidecar binary ships alongside `kesha-engine` on darwin-arm64 releases (#141); `kesha install` places both in `~/.cache/kesha/bin/`.
 
 ```bash
 kesha say --list-voices | grep ^macos-                                       # discover installed voices

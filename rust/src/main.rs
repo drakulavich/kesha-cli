@@ -55,7 +55,7 @@ enum Commands {
         /// Re-download even if cached
         #[arg(long)]
         no_cache: bool,
-        /// Also install TTS models (Kokoro EN + Piper RU, ~390MB). Requires `espeak-ng` on PATH.
+        /// Also install TTS models (Kokoro EN + Piper RU + ONNX G2P, ~490MB).
         #[cfg(feature = "tts")]
         #[arg(long)]
         tts: bool,
@@ -71,7 +71,7 @@ enum Commands {
         /// Voice id, e.g. `en-af_heart`
         #[arg(long)]
         voice: Option<String>,
-        /// Override the voice's default espeak language code, e.g. `en-gb`
+        /// Override the voice's default BCP 47 language code, e.g. `en-gb`
         #[arg(long)]
         lang: Option<String>,
         /// Output file (default: stdout)
@@ -107,24 +107,6 @@ struct SayArgs {
     ssml: bool,
     model: Option<std::path::PathBuf>,
     voice_file: Option<std::path::PathBuf>,
-}
-
-#[cfg(feature = "tts")]
-fn ensure_espeak_available() -> anyhow::Result<()> {
-    use std::process::Command;
-    let check = Command::new("espeak-ng").arg("--version").output();
-    match check {
-        Ok(o) if o.status.success() => Ok(()),
-        _ => {
-            anyhow::bail!(
-                "espeak-ng not found on PATH.\n\
-                 Install it and retry:\n\
-                   macOS:   brew install espeak-ng\n\
-                   Linux:   apt install espeak-ng  (or your distro equivalent)\n\
-                   Windows: choco install espeak-ng"
-            )
-        }
-    }
 }
 
 #[cfg(feature = "tts")]
@@ -329,7 +311,6 @@ fn main() -> Result<()> {
             models::install(no_cache)?;
             #[cfg(feature = "tts")]
             if tts {
-                ensure_espeak_available()?;
                 models::download_tts(no_cache)?;
                 eprintln!("TTS models installed.");
             }

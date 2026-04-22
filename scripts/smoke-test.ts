@@ -65,7 +65,7 @@ try {
 const typoProc = Bun.spawnSync(["kesha", "instal"], { stdout: "pipe", stderr: "pipe" });
 check("typo suggestion works", typoProc.exitCode === 1 && typoProc.stderr.toString().includes("Did you mean"));
 
-// 6. TTS smoke (opt-in via --tts flag; requires `kesha install --tts` + espeak-ng)
+// 6. TTS smoke (opt-in via --tts flag; requires `kesha install --tts`)
 if (process.argv.includes("--tts")) {
   for (const [label, text] of [
     ["en (Kokoro)", "Hello, world"],

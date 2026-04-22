@@ -95,7 +95,7 @@ async function downloadAVSpeechSidecar(binPath: string, engineVersion: string): 
 }
 
 export interface InstallOptions {
-  /** Also install Kokoro TTS models. Requires espeak-ng on PATH. */
+  /** Also install Kokoro + Piper + ONNX G2P TTS models. */
   tts?: boolean;
   /** Also install Silero VAD model for long-audio preprocessing. */
   vad?: boolean;

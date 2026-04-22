@@ -1,4 +1,4 @@
-//! End-to-end TTS: real model, real voice, real espeak-ng → produces real WAV bytes.
+//! End-to-end TTS: real model, real voice, ONNX G2P → produces real WAV bytes.
 //! Gated on engine-specific env vars so default CI without models stays fast.
 
 #![cfg(feature = "tts")]

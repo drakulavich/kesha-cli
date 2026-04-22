@@ -309,7 +309,7 @@ const text = await transcribe("audio.ogg");
 - **CoreML engine**: macOS 14+, Apple Silicon (arm64)
 - **ONNX engine**: macOS, Linux, Windows
 - `ffmpeg` is **not required** — the Rust engine uses symphonia + rubato
-- **TTS**: `espeak-ng` on PATH (`brew install espeak-ng` / `apt install espeak-ng` / `choco install espeak-ng`). Vendoring tracked in [#124](https://github.com/drakulavich/kesha-voice-kit/issues/124).
+- **TTS**: no system deps. G2P runs as ONNX (CharsiuG2P ByT5-tiny, #123) alongside Kokoro/Piper.
 
 ## TTS
 
@@ -319,11 +319,11 @@ Text-to-speech via three engines selected by voice id prefix:
 - `ru-*` → **Piper VITS** (`rhasspy/piper-voices`). Per-voice `.onnx` + `.onnx.json`. Output depends on voice (22.05 kHz for medium tier).
 - `macos-*` → **AVSpeechSynthesizer** via a Swift sidecar (#141). Zero model download, notification-grade quality. Enabled on darwin-arm64 release binaries (`--features coreml,tts,system_tts` in build-engine.yml). `kesha install` fetches `say-avspeech-darwin-arm64` next to the engine; runtime lookup is sibling-first (see `rust/src/tts/avspeech.rs::helper_path`).
 
-Opt-in via `kesha install --tts` (downloads Kokoro + Piper, ~390 MB). `macos-*` voices need no install — they use voices already on macOS.
+Opt-in via `kesha install --tts` (downloads Kokoro + Piper + ONNX G2P, ~490 MB). `macos-*` voices need no install — they use voices already on macOS.
 
 - TTS models are **never auto-downloaded** — `kesha say` fails loudly with a `kesha install --tts` hint when models are missing.
 - `kesha say` writes WAV mono f32 to stdout unless `--out` is given. Stderr is progress/errors only.
-- G2P uses `espeakng-sys` (dynamic link against system `libespeak-ng`) for both engines.
+- G2P uses CharsiuG2P ByT5-tiny ONNX (`rust/src/tts/g2p.rs`, FP32, ~100 MB), shared across Kokoro and Piper pipelines. See [#123](https://github.com/drakulavich/kesha-voice-kit/issues/123) and `docs/superpowers/specs/2026-04-22-onnx-g2p-spike.md`.
 - **Auto-routing:** when `--voice` is omitted, the TS CLI calls `NLLanguageRecognizer` on the input text and picks `en-af_heart` or `ru-denis`. Confidence < 0.5 or unmapped language falls through to the engine default. `pickVoiceForLang` in `src/cli.ts` is the routing table — add a language by adding a match arm.
 - **SSML** (opt-in via `--ssml`): uses the `ssml-parser` crate; supports `<speak>` root and `<break time="...">` for silence. Unknown tags (`<emphasis>`, `<prosody>`, `<phoneme>`, `<say-as>`) warn to stderr once per name and are stripped, but contained text is still synthesized. Hardening: required `<speak>` root, `<!DOCTYPE>` rejected anywhere in input. `tts::ssml::parse` returns `Vec<Segment>`; `tts::say()` loads the engine once and concatenates f32 samples for text vs silence for breaks before a single `wav::encode_wav`. See issue #122 for the full scope matrix and future tag support.
 - Kokoro ONNX: `input_ids` (int64 `[1,N]`), `style` (f32 `[1,256]` — rank-2), `speed` (f32 `[1]`). Output name `"waveform"`. Voice file 510 rows × 256 cols.

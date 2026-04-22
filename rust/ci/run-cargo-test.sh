@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run `cargo test` with platform-specific env vars for espeak-ng linking
-# and Kokoro-model paths. Skips the real-inference tests if the cache is empty.
+# Run `cargo test` with Kokoro-model env vars pointing at the workflow's
+# cached spike assets. Skips the real-inference tests if the cache is empty.
 set -euo pipefail
 
 KOKORO_CACHE="${1:?usage: run-cargo-test.sh <kokoro_cache> <runner_os>}"
@@ -9,20 +9,7 @@ RUNNER_OS="${2:?}"
 cd rust
 
 case "$RUNNER_OS" in
-  macOS)
-    export LIBCLANG_PATH=/Library/Developer/CommandLineTools/usr/lib
-    export RUSTFLAGS="-L /opt/homebrew/lib"
-    export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib
-    ;;
-  Linux)
-    # apt-installed libespeak-ng is discovered via pkg-config / default lib paths
-    :
-    ;;
-  Windows)
-    # LIB / PATH / LIBCLANG_PATH are set in the workflow step that generates
-    # the espeak-ng import lib from the DLL (see rust-test.yml #136 block).
-    :
-    ;;
+  macOS|Linux|Windows) ;;
   *)
     echo "unsupported runner: $RUNNER_OS" >&2
     exit 1
