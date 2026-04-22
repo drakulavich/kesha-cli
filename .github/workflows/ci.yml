@@ -88,6 +88,14 @@ jobs:
       - name: 🍞 Setup Bun workspace
         uses: ./.github/actions/setup-bun
 
+      # BRIDGE: integration-tests downloads the released `kesha-engine`
+      # binary, which still dynamic-links libespeak-ng because Phase 2a
+      # (ONNX G2P hard swap, #123) hasn't cut a new release yet. Once a
+      # fresh engine release ships, remove this step — the new binary
+      # has no espeak dep.
+      - name: Install espeak-ng (bridge for released engine binary)
+        run: brew install espeak-ng
+
       - name: 🔊 Setup integration backend
         uses: ./.github/actions/install-parakeet-backend
         with:
@@ -151,6 +159,9 @@ jobs:
         env:
           KOKORO_MODEL: ${{ env.KOKORO_CACHE }}/model.onnx
           KOKORO_VOICE: ${{ env.KOKORO_CACHE }}/af_heart.bin
+          # G2P + Piper live under this dir (see rust/ci/download-kokoro.sh)
+          # — runtime loader resolves them via `models::cache_dir()`.
+          KESHA_CACHE_DIR: ${{ env.KOKORO_CACHE }}
           KESHA_ENGINE_BIN: ${{ github.workspace }}/rust/target/release/kesha-engine
           DYLD_FALLBACK_LIBRARY_PATH: /opt/homebrew/lib
         run: bun test tests/integration/say-e2e.test.ts
