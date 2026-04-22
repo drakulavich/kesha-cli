@@ -2,9 +2,11 @@ import { isEngineInstalled, transcribeEngine } from "./engine";
 
 export interface TranscribeOptions {
   silent?: boolean;
-  /** Run Silero VAD preprocessing: segment the audio first, then transcribe
-   *  each speech span and stitch results. Opt-in — requires the VAD model
-   *  to be installed (`kesha install --vad`). */
+  /** Silero VAD preprocessing mode:
+   *  - `true` — force on (requires `kesha install --vad`)
+   *  - `false` — force off, even for long audio
+   *  - `undefined` (default) — auto-on when audio ≥ 120 s and VAD is installed
+   *  See #187. */
   vad?: boolean;
 }
 

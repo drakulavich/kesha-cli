@@ -224,3 +224,45 @@ pub fn load_audio_truncated(path: &str, max_seconds: f32) -> Result<Vec<f32>> {
     let max_samples = (max_seconds * TARGET_SAMPLE_RATE as f32) as usize;
     Ok(samples.into_iter().take(max_samples).collect())
 }
+
+/// Probe audio duration in seconds without decoding. Returns `None` when the
+/// container doesn't report a frame count (some streaming Ogg/Opus files);
+/// callers should treat `None` as "unknown — skip auto-trigger" rather than
+/// falling back to a decode-and-measure, which would defeat the purpose of a
+/// cheap probe.
+pub fn probe_duration_seconds(path: &str) -> Result<Option<f32>> {
+    let src = std::fs::File::open(path).with_context(|| format!("file not found: {path}"))?;
+    let mss = MediaSourceStream::new(Box::new(src), Default::default());
+
+    let mut hint = Hint::new();
+    if let Some(ext) = std::path::Path::new(path)
+        .extension()
+        .and_then(|e| e.to_str())
+    {
+        hint.with_extension(ext);
+    }
+
+    let mut probe = Probe::default();
+    symphonia::default::register_enabled_formats(&mut probe);
+
+    let probed = probe
+        .format(
+            &hint,
+            mss,
+            &FormatOptions::default(),
+            &MetadataOptions::default(),
+        )
+        .with_context(|| format!("unsupported audio format: {path}"))?;
+
+    let track = probed
+        .format
+        .tracks()
+        .iter()
+        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .with_context(|| format!("no supported audio tracks in: {path}"))?;
+
+    match (track.codec_params.n_frames, track.codec_params.sample_rate) {
+        (Some(n), Some(sr)) if sr > 0 => Ok(Some(n as f32 / sr as f32)),
+        _ => Ok(None),
+    }
+}
