@@ -118,7 +118,9 @@ pub fn piper_ru_manifest() -> Vec<ModelFile> {
 /// backend (#123). CC-BY 4.0; attribution is in `NOTICES`. Hashes pinned
 /// from the spike capture; `v6.2.1`-style release pins aren't available on
 /// this repo (no tags), so the pin doubles as both integrity + availability
-/// check — a force-push to `main` flips the hash and the download bails.
+/// check — any upstream content change (regular commit or force-push to
+/// `main`, content-addressed under git-LFS) flips the hash and the
+/// download bails.
 #[cfg(feature = "tts")]
 pub fn g2p_onnx_manifest() -> Vec<ModelFile> {
     vec![
