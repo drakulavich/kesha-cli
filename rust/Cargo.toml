@@ -57,8 +57,9 @@ thiserror = { version = "1", optional = true }
 sha2 = "0.10"
 ssml-parser = { version = "0.1", optional = true }
 
-[dev-dependencies]
 tempfile = "3"
+
+[dev-dependencies]
 
 [profile.release]
 lto = true
