@@ -98,15 +98,12 @@ pub fn parse(input: &str) -> anyhow::Result<Vec<Segment>> {
                     cursor = span.end;
                 } else {
                     // `is_ipa` above already filtered `None` and `Some(Ipa)`,
-                    // so the only remaining variant today is `Other(s)`. Listed
-                    // exhaustively so a future `ssml-parser` enum addition
-                    // (e.g. explicit `Sampa`) breaks the build here instead of
-                    // silently displaying `"unknown"` in the warning.
+                    // so the only remaining variant today is `Other(s)`. Future
+                    // `ssml-parser` enum growth falls into the wildcard with a
+                    // synthesized name — warn + strip, never panic on user input.
                     let alpha = match &attrs.alphabet {
                         Some(PhonemeAlphabet::Other(s)) => s.clone(),
-                        Some(PhonemeAlphabet::Ipa) | None => {
-                            unreachable!("filtered by is_ipa above")
-                        }
+                        other => format!("{other:?}"),
                     };
                     if warned.insert(format!("phoneme[alphabet={alpha}]")) {
                         eprintln!(
@@ -154,10 +151,7 @@ fn tag_name(el: &ParsedElement) -> String {
         ParsedElement::Token(_) => "token",
         ParsedElement::Word(_) => "w",
         ParsedElement::SayAs(_) => "say-as",
-        // Phoneme has its own branch in `parse()` (both IPA and non-IPA cases
-        // handled there), so this arm isn't reachable today. Kept for
-        // exhaustiveness — if a future callsite of `tag_name` surfaces a
-        // Phoneme element, we still want the canonical tag name.
+        // Canonical name kept for exhaustiveness; `parse()` handles Phoneme directly.
         ParsedElement::Phoneme(_) => "phoneme",
         ParsedElement::Sub(_) => "sub",
         ParsedElement::Lang(_) => "lang",

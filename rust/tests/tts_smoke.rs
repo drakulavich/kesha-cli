@@ -2,6 +2,8 @@
 
 use std::process::Command;
 
+use kesha_engine::models;
+
 #[test]
 fn capabilities_advertises_tts() {
     let bin = env!("CARGO_BIN_EXE_kesha-engine");
@@ -182,24 +184,17 @@ fn resolves_from_cache_when_installed() {
             return;
         }
     };
-    // G2P became a runtime requirement in #123 (Phase 2a). Source dir
-    // comes from the parent `KESHA_CACHE_DIR` (set by the CI runner) —
-    // we copy the 3 ONNX files into the tempdir alongside Kokoro so the
-    // sub-process finds them under the test's own KESHA_CACHE_DIR.
-    let g2p_src = match std::env::var("KESHA_CACHE_DIR") {
-        Ok(c) => {
-            let p = std::path::PathBuf::from(c).join("models/g2p/byt5-tiny");
-            if p.join("encoder_model.onnx").exists() {
-                p
-            } else {
-                eprintln!("skipping: G2P not at $KESHA_CACHE_DIR/models/g2p/byt5-tiny");
-                return;
-            }
-        }
-        Err(_) => {
-            eprintln!("skipping: set KESHA_CACHE_DIR to a cache containing G2P models");
+    // G2P became a runtime requirement in Phase 2a — copy the ONNX files
+    // into the tempdir alongside Kokoro so the sub-process finds them
+    // under the test's own KESHA_CACHE_DIR. Source layout mirrors
+    // `models::g2p_model_dir()`.
+    let g2p_src = {
+        let dir_str = models::g2p_model_dir();
+        if !models::is_g2p_cached(&dir_str) {
+            eprintln!("skipping: g2p model not installed at {dir_str}");
             return;
         }
+        std::path::PathBuf::from(dir_str)
     };
 
     let tmp = tempfile::tempdir().unwrap();

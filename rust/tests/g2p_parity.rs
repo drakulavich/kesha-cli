@@ -77,30 +77,18 @@ const REFERENCE: &[(&str, &str, &str)] = &[
     ("hi", "namaste", "nɒmɒsteː"),
 ];
 
-fn model_cached() -> bool {
-    let dir = models::cache_dir()
-        .join("models")
-        .join("g2p")
-        .join("byt5-tiny");
-    [
-        "encoder_model.onnx",
-        "decoder_model.onnx",
-        "decoder_with_past_model.onnx",
-    ]
-    .iter()
-    .all(|f| dir.join(f).exists())
-}
-
 #[test]
 fn g2p_output_matches_frozen_reference() {
-    if !model_cached() {
-        eprintln!(
-            "g2p model not cached at {}/models/g2p/byt5-tiny — skipping parity harness",
-            models::cache_dir().display()
-        );
+    let dir = models::g2p_model_dir();
+    if !models::is_g2p_cached(&dir) {
+        eprintln!("g2p model not cached at {dir} — skipping parity harness");
         return;
     }
 
+    // SAFETY VALVE: `REGENERATE_G2P_REFERENCE=1` is a maintainer escape hatch.
+    // If it gets left exported in a shell profile, this test becomes a silent
+    // no-op forever and real drift lands unnoticed. Loud stderr banner below;
+    // CI must never set this env var.
     let regenerate = std::env::var("REGENERATE_G2P_REFERENCE").is_ok();
     let mut mismatches: Vec<String> = Vec::new();
     let mut regen_lines: Vec<String> = Vec::new();
@@ -117,7 +105,12 @@ fn g2p_output_matches_frozen_reference() {
     }
 
     if regenerate {
-        eprintln!("REGENERATE mode — paste these tuples back into REFERENCE:\n");
+        eprintln!(
+            "\n\x1b[33m=============================================================\n\
+             REGENERATE_G2P_REFERENCE=1 → drift check DISABLED for this run.\n\
+             Paste the tuples below back into REFERENCE, then unset the env var.\n\
+             =============================================================\x1b[0m\n"
+        );
         for line in regen_lines {
             eprintln!("{line}");
         }

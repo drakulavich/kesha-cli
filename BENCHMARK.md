@@ -152,10 +152,10 @@ Grapheme-to-phoneme conversion for Kokoro (English) and Piper (Russian) ran on `
 | Windows install-link dance | `dumpbin /exports` + `lib /def` in CI | not required |
 | macOS runtime dep | `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` | none |
 | Linux runtime dep | `libespeak-ng1` (apt) | none |
-| Latency (end-to-end, 40-word multilingual corpus, release build, Apple M3 Pro) | not measured | **149 ms/word** average |
+| Latency (end-to-end, 40-word multilingual corpus, release build, Apple M3 Pro) | not measured | **149 ms/word** measured |
 | PER baseline (upstream) | unpublished | 8.1% / 25.3% WER per [Zhu et al. 2022](https://arxiv.org/abs/2204.03067) |
 
-Latency breakdown (release build, M3 Pro): ~100 ms of the per-word figure is ORT session-load overhead that will amortize to zero once a process-wide session cache is wired up (tracked as a follow-up; the current per-call load pattern matches Kokoro/Piper/VAD). Actual inference is ~40 ms/word on a byte-level 128-step max decode; amortized across long utterances the throughput approaches the upstream paper's reported 36 ms/word baseline.
+Latency breakdown (release build, M3 Pro): the 149 ms/word figure is measured with the **current per-call session-load pattern** — each `text_to_ipa` call opens all three ONNX sessions fresh. About 100 ms of that is session-load overhead (ORT init + commit for encoder + two decoders); the remaining ~40 ms is actual inference over a byte-level 128-step max decode. A process-wide session cache would drop throughput to ≈ 40 ms/word — **not shipped in v1.4.0; tracked as a follow-up** alongside similar caching for Kokoro / Piper / VAD (their `load()` calls follow the same per-call pattern).
 
 Quality tradeoff is honest: ByT5-tiny has the same 8.1% PER ceiling everywhere in the stack. Out-of-dict English words (`pneumonia → ˈpnuˈmoʊniˌɑi` — noisy trailing `ˌɑi`) produce audible artifacts. The SSML `<phoneme alphabet="ipa" ph="...">` override (v1.4.1+) is the ergonomic escape hatch. Regression guard: `cargo test --test g2p_parity` locks 40 reference IPA outputs across 11 languages against the pinned FP32 weights.
 

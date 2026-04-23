@@ -217,6 +217,16 @@ pub fn vad_model_dir() -> String {
         .to_string()
 }
 
+#[cfg(feature = "tts")]
+pub fn g2p_model_dir() -> String {
+    cache_dir()
+        .join("models")
+        .join("g2p")
+        .join("byt5-tiny")
+        .to_string_lossy()
+        .to_string()
+}
+
 pub fn is_asr_cached(dir: &str) -> bool {
     has_all_files(dir, ASR_FILES)
 }
@@ -227,6 +237,18 @@ pub fn is_lang_id_cached(dir: &str) -> bool {
 
 pub fn is_vad_cached(dir: &str) -> bool {
     has_all_files(dir, VAD_FILES)
+}
+
+#[cfg(feature = "tts")]
+pub fn is_g2p_cached(dir: &str) -> bool {
+    let manifest = g2p_onnx_manifest();
+    let dir = Path::new(dir);
+    manifest.iter().all(|f| {
+        Path::new(f.rel_path)
+            .file_name()
+            .map(|n| dir.join(n).exists())
+            .unwrap_or(false)
+    })
 }
 
 /// Caller passes the per-model dir (e.g. `asr_model_dir()`); we pull the
