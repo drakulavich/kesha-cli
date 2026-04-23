@@ -36,10 +36,13 @@ export default async function Command() {
 
   try {
     await showHUD("🎙  Synthesizing…");
-    const args = ["say", text, "--out", wavPath];
+    // `--` terminates option parsing: any leading `--` in the clipboard
+    // payload (e.g. a pasted code diff) won't be misread as a flag.
+    const args = ["say", "--out", wavPath];
     if (voice) {
       args.push("--voice", voice);
     }
+    args.push("--", text);
     await execFileAsync(keshaBin, args, { maxBuffer: 4 * 1024 * 1024 });
 
     await showHUD("🔊 Playing…");
@@ -52,13 +55,16 @@ export default async function Command() {
         `✗ \`${keshaBin}\` not found — see https://github.com/drakulavich/kesha-voice-kit#install`,
       );
     } else {
-      // Don't echo the error message: Node's subprocess errors include the
-      // full argv, which for this command contains the clipboard payload
-      // (potentially a password, token, or anything else the user copied).
-      // A generic HUD + console.error keeps the failure debuggable without
-      // leaking clipboard bytes into macOS notification history.
-      const message = err instanceof Error ? err.message : String(err);
-      console.error("speak-clipboard failed:", message);
+      // Node's subprocess errors include the full argv (clipboard payload)
+      // in both `.message` and `.cmd`. Log only non-sensitive exit metadata
+      // so secrets pasted into the clipboard don't hit extension logs or
+      // macOS notification history.
+      const e = err as
+        | (NodeJS.ErrnoException & { signal?: string })
+        | undefined;
+      console.error(
+        `speak-clipboard failed: exitCode=${e?.code ?? "?"} signal=${e?.signal ?? "?"}`,
+      );
       await showHUD("✗ Speech synthesis failed (see extension logs)");
     }
   } finally {
