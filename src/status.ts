@@ -93,12 +93,13 @@ function showDiskUsage(binPath: string): void {
   const cache = kesheCacheDir();
   // Engine binary lives under `<cache>/engine/bin/` (managed by the TS CLI's
   // engine-install) while all models live under `<cache>/models/` (managed by
-  // the Rust engine). Derive the engine dir from `getEngineBinPath()` so we
-  // stay in sync if the TS layout ever moves.
-  const engineDir = join(binPath, "..");
+  // the Rust engine). Point at `engine/` (two levels up from the binary) so
+  // any future sibling files under that root (metadata, hooks, etc.) are
+  // counted too.
+  const engineDir = join(binPath, "..", "..");
 
   const components: Array<{ label: string; path: string }> = [
-    { label: "Engine binary", path: engineDir },
+    { label: "Engine", path: engineDir },
     { label: "ASR (Parakeet)", path: join(cache, "models/parakeet-tdt-v3") },
     { label: "Language ID", path: join(cache, "models/lang-id-ecapa") },
     { label: "VAD (Silero)", path: join(cache, "models/silero-vad") },
@@ -108,16 +109,24 @@ function showDiskUsage(binPath: string): void {
   ];
 
   const rows: Array<{ label: string; size: number }> = [];
-  let total = 0;
   for (const c of components) {
     const size = dirSizeBytes(c.path);
-    if (size > 0) {
-      rows.push({ label: c.label, size });
-      total += size;
-    }
+    if (size > 0) rows.push({ label: c.label, size });
   }
 
   if (rows.length === 0) return;
+
+  // Total counts everything under both the model cache root AND the engine
+  // dir (which may live outside the cache when `KESHA_ENGINE_BIN` overrides
+  // the default layout). That way the number matches what the `rm -rf` hint
+  // below would actually free, including any temp downloads or future
+  // components not in the per-row list.
+  const componentTotal = rows.reduce((n, r) => n + r.size, 0);
+  const cacheTotal = dirSizeBytes(cache);
+  const engineOutsideCache = engineDir.startsWith(cache)
+    ? 0
+    : dirSizeBytes(engineDir);
+  const total = cacheTotal + engineOutsideCache;
 
   log.info(`Disk usage (${cache}):`);
   const labelWidth = Math.max(...rows.map((r) => r.label.length), "Total".length);
@@ -127,6 +136,10 @@ function showDiskUsage(binPath: string): void {
   }
   const totalPad = " ".repeat(labelWidth - "Total".length + 2);
   log.info(`  ${pc.bold("Total")}:${totalPad}${pc.bold(humanBytes(total))}`);
+  if (total > componentTotal) {
+    const other = total - componentTotal;
+    log.info(pc.dim(`  (includes ${humanBytes(other)} of other cache files)`));
+  }
   log.info("");
   log.info(pc.dim(`  To reset cache: rm -rf ${cache} — next \`kesha install\` re-downloads.`));
   log.info("");
