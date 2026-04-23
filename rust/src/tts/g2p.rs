@@ -30,12 +30,12 @@ struct G2pSessions {
 
 impl G2pSessions {
     fn load() -> Result<Self> {
-        let cache = models::cache_dir();
-        let dir = cache.join("models").join("g2p").join("byt5-tiny");
+        let dir_str = models::g2p_model_dir();
         anyhow::ensure!(
-            dir.exists(),
+            models::is_g2p_cached(&dir_str),
             "G2P model not installed. Run: kesha install --tts"
         );
+        let dir = Path::new(&dir_str);
         let encoder = build_session(&dir.join("encoder_model.onnx")).context("load g2p encoder")?;
         let decoder = build_session(&dir.join("decoder_model.onnx")).context("load g2p decoder")?;
         let decoder_with_past = build_session(&dir.join("decoder_with_past_model.onnx"))

@@ -140,6 +140,27 @@ The `Transcript (Whisper)` column runs `openai-whisper large-v3-turbo` against t
 
 Both engines preserve enough signal for downstream agents to act on the content — which is what Kesha is optimized for. The ~15–19× speed advantage is the headline; quality is within the same band on the tasks Kesha targets (voice-message transcription where latency + local-first matter).
 
+## G2P backend (TTS)
+
+Grapheme-to-phoneme conversion for Kokoro (English) and Piper (Russian) ran on `espeak-ng` through v1.3.0; v1.4.0 replaced it with [klebster/g2p_multilingual_byT5_tiny_onnx](https://huggingface.co/klebster/g2p_multilingual_byT5_tiny_onnx) (CharsiuG2P ByT5-tiny ONNX, FP32). See issue [#123](https://github.com/drakulavich/kesha-voice-kit/issues/123).
+
+| | espeak-ng (≤ v1.3.0) | CharsiuG2P ByT5-tiny (v1.4.0+) |
+|---|---|---|
+| Binary (release, stripped) | 23 MB + **system dep** | **23 MB**, no system dep |
+| Models on disk | 0 | 101 MB (55 + 25 + 22) FP32 |
+| Install-time TTS bundle | ~390 MB | **~490 MB** |
+| Windows install-link dance | `dumpbin /exports` + `lib /def` in CI | not required |
+| macOS runtime dep | `DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` | none |
+| Linux runtime dep | `libespeak-ng1` (apt) | none |
+| Latency (end-to-end, 40-word multilingual corpus, release build, Apple M3 Pro) | not measured | **149 ms/word** measured |
+| PER baseline (upstream) | unpublished | 8.1% / 25.3% WER per [Zhu et al. 2022](https://arxiv.org/abs/2204.03067) |
+
+Latency breakdown (release build, M3 Pro): the 149 ms/word figure is measured with the **current per-call session-load pattern** — each `text_to_ipa` call opens all three ONNX sessions fresh. About 100 ms of that is session-load overhead (ORT init + commit for encoder + two decoders); the remaining ~40 ms is actual inference over a byte-level 128-step max decode. A process-wide session cache would drop throughput to ≈ 40 ms/word — **not shipped in v1.4.0; tracked as a follow-up** alongside similar caching for Kokoro / Piper / VAD (their `load()` calls follow the same per-call pattern).
+
+Quality tradeoff is honest: ByT5-tiny has the same 8.1% PER ceiling everywhere in the stack. Out-of-dict English words (`pneumonia → ˈpnuˈmoʊniˌɑi` — noisy trailing `ˌɑi`) produce audible artifacts. The SSML `<phoneme alphabet="ipa" ph="...">` override (v1.4.1+) is the ergonomic escape hatch. Regression guard: `cargo test --test g2p_parity` locks 40 reference IPA outputs across 11 languages against the pinned FP32 weights.
+
+INT8 quantization (~27 MB total models, ~3-4× faster inference per the upstream README) is tracked as a follow-up — not published by the upstream repo, so we'd host the quantized export on `drakulavich/g2p-byt5-tiny-onnx` with its own pinned SHA.
+
 ## Output size: `--json` vs `--toon` (#138)
 
 TOON is a compact, LLM-token-efficient encoding of the same data as `--json`. Size savings depend on how uniform the output array is.
