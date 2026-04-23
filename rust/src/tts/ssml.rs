@@ -154,6 +154,10 @@ fn tag_name(el: &ParsedElement) -> String {
         ParsedElement::Token(_) => "token",
         ParsedElement::Word(_) => "w",
         ParsedElement::SayAs(_) => "say-as",
+        // Phoneme has its own branch in `parse()` (both IPA and non-IPA cases
+        // handled there), so this arm isn't reachable today. Kept for
+        // exhaustiveness — if a future callsite of `tag_name` surfaces a
+        // Phoneme element, we still want the canonical tag name.
         ParsedElement::Phoneme(_) => "phoneme",
         ParsedElement::Sub(_) => "sub",
         ParsedElement::Lang(_) => "lang",
