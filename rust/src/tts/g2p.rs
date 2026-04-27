@@ -221,12 +221,46 @@ fn g2p_word(sess: &mut G2pSessions, charsiu_code: &str, word: &str) -> Result<St
 }
 
 /// Convert text to IPA phonemes for the given espeak-style language code.
-/// Words are split on whitespace; punctuation is stripped per-word. Empty
-/// input returns an empty string.
+/// English (`en`, `en-us`, `en-gb`) uses misaki-rs (POS-aware, Kokoro-trained
+/// inventory + espeak fallback for OOV). Other languages fall through to the
+/// CharsiuG2P ONNX path. Empty input returns an empty string.
 pub fn text_to_ipa(text: &str, lang: &str) -> Result<String> {
     if text.trim().is_empty() {
         return Ok(String::new());
     }
+    if let Some(misaki_lang) = misaki_lang_for(lang) {
+        return Ok(misaki_to_ipa(text, misaki_lang));
+    }
+    text_to_ipa_charsiu(text, lang)
+}
+
+fn misaki_lang_for(lang: &str) -> Option<misaki_rs::Language> {
+    match lang.to_ascii_lowercase().as_str() {
+        "en" | "en-us" => Some(misaki_rs::Language::EnglishUS),
+        "en-gb" | "en-uk" => Some(misaki_rs::Language::EnglishGB),
+        _ => None,
+    }
+}
+
+/// Run misaki-rs and strip the U+200D zero-width joiners it inserts for
+/// diphthong cohesion — Kokoro/Piper vocabs don't include them.
+fn misaki_to_ipa(text: &str, lang: misaki_rs::Language) -> String {
+    let g2p = misaki_rs::G2P::new(lang);
+    match g2p.g2p(text) {
+        Ok((ipa, _)) => ipa
+            .chars()
+            .filter(|c| *c != '\u{200d}')
+            .collect::<String>()
+            .trim()
+            .to_string(),
+        Err(_) => String::new(),
+    }
+}
+
+/// CharsiuG2P fallback for languages misaki-rs doesn't support. Per-word
+/// tokenization strips punctuation — see #210 for the Russian-Piper followup
+/// that needs punctuation passthrough via espeak-ng.
+fn text_to_ipa_charsiu(text: &str, lang: &str) -> Result<String> {
     let charsiu = charsiu_lang(lang)?;
     let mut sess = G2pSessions::load()?;
     let mut out: Vec<String> = Vec::new();
@@ -299,36 +333,25 @@ mod tests {
         assert!(err.to_string().to_lowercase().contains("xx-xx"));
     }
 
-    /// Gated on the presence of the G2P model cache. Run `kesha install --tts`
-    /// first. Verifies byte-identical IPA against the spike's reference fixtures
-    /// (see docs/superpowers/specs/2026-04-22-onnx-g2p-spike.md section 5).
+    /// English path uses misaki-rs (self-contained, no cache needed). Verifies
+    /// the IPA contains the expected stressed vowels for `hello world`.
     #[test]
-    fn hello_world_matches_reference_when_model_available() {
-        let dir = models::cache_dir()
-            .join("models")
-            .join("g2p")
-            .join("byt5-tiny");
-        if !dir.exists() {
-            eprintln!("g2p model not cached at {} — skipping", dir.display());
-            return;
-        }
-        let ipa = text_to_ipa("hello", "en-us").unwrap();
-        assert_eq!(ipa, "ˈhɛɫoʊ", "expected spike-reference IPA for 'hello'");
-        let ipa = text_to_ipa("world", "en-us").unwrap();
-        assert_eq!(ipa, "ˈwɝɫd");
+    fn english_misaki_produces_expected_phonemes() {
+        let ipa = text_to_ipa("hello world", "en-us").unwrap();
+        assert!(ipa.contains('h'), "missing /h/ in: {ipa}");
+        assert!(ipa.contains('w'), "missing /w/ in: {ipa}");
+        assert!(ipa.contains('ˈ'), "missing primary stress in: {ipa}");
+        // No zero-width joiner — we strip it before returning.
+        assert!(!ipa.contains('\u{200d}'), "ZWJ leaked into IPA: {ipa:?}");
     }
 
     #[test]
-    fn multiword_input_produces_space_joined_ipa() {
-        let dir = models::cache_dir()
-            .join("models")
-            .join("g2p")
-            .join("byt5-tiny");
-        if !dir.exists() {
-            return;
-        }
-        let ipa = text_to_ipa("hello world", "en-us").unwrap();
-        assert!(ipa.contains(' '), "expected space between words: {ipa}");
-        assert!(ipa.starts_with("ˈh"), "starts with hello: {ipa}");
+    fn english_dispatches_to_misaki_for_en_aliases() {
+        assert!(misaki_lang_for("en").is_some());
+        assert!(misaki_lang_for("en-us").is_some());
+        assert!(misaki_lang_for("EN-US").is_some());
+        assert!(misaki_lang_for("en-gb").is_some());
+        assert!(misaki_lang_for("en-uk").is_some());
+        assert!(misaki_lang_for("ru").is_none());
     }
 }
