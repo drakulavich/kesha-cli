@@ -69,7 +69,7 @@ enum Commands {
     Say {
         /// Text to synthesize (omit to read from stdin)
         text: Option<String>,
-        /// Voice id, e.g. `en-af_heart`
+        /// Voice id, e.g. `en-am_michael`
         #[arg(long)]
         voice: Option<String>,
         /// Override the voice's default BCP 47 language code, e.g. `en-gb`
@@ -149,6 +149,19 @@ fn list_piper_ru_voices(cache: &std::path::Path) -> Vec<String> {
         .collect()
 }
 
+#[cfg(feature = "tts")]
+fn list_vosk_ru_voices(_cache: &std::path::Path) -> Vec<String> {
+    // Static catalogue — these speaker ids are baked into the multi-speaker model.
+    // Order: f01, f02, f03, m01, m02 (m02 is the spec default).
+    vec![
+        "ru-vosk-f01".into(),
+        "ru-vosk-f02".into(),
+        "ru-vosk-f03".into(),
+        "ru-vosk-m01".into(),
+        "ru-vosk-m02".into(),
+    ]
+}
+
 /// Map a TTS error to the documented exit code for `kesha say`.
 /// 2 = bad input, 4 = synthesis failure, 5 = text too long.
 /// (Voice-not-installed exits 1 directly from the resolver path.)
@@ -170,6 +183,7 @@ fn run_say(a: SayArgs) -> i32 {
         let mut voice_ids: Vec<String> = list_kokoro_voices(&cache)
             .into_iter()
             .chain(list_piper_ru_voices(&cache))
+            .chain(list_vosk_ru_voices(&cache))
             .collect();
         // macos-* voices live in the OS, not the cache — enumerate them via
         // the AVSpeech helper (#141). Best-effort: if the helper is absent or
@@ -244,6 +258,14 @@ fn run_say(a: SayArgs) -> i32 {
         } => tts::EngineChoice::Piper {
             model_path,
             config_path,
+            speed: a.rate,
+        },
+        tts::voices::ResolvedVoice::Vosk {
+            model_dir,
+            speaker_id,
+        } => tts::EngineChoice::Vosk {
+            model_dir,
+            speaker_id: *speaker_id,
             speed: a.rate,
         },
         #[cfg(all(feature = "system_tts", target_os = "macos"))]

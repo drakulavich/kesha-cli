@@ -49,6 +49,13 @@ pub enum EngineChoice<'a> {
         /// Mapped to Piper's `length_scale = 1 / speed`.
         speed: f32,
     },
+    /// Vosk-TTS Russian: model dir + speaker id (G2P happens inside vosk).
+    Vosk {
+        model_dir: &'a Path,
+        speaker_id: u32,
+        /// Reserved for future rate scaling; passed through to vosk's speech_rate.
+        speed: f32,
+    },
 }
 
 pub struct SayOptions<'a> {
@@ -80,6 +87,7 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
     let engine_label: &str = match &opts.engine {
         EngineChoice::Kokoro { .. } => "kokoro",
         EngineChoice::Piper { .. } => "piper",
+        EngineChoice::Vosk { .. } => "vosk",
         #[cfg(all(feature = "system_tts", target_os = "macos"))]
         EngineChoice::AVSpeech { .. } => "avspeech",
     };
@@ -99,6 +107,19 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
         }
         return avspeech::synthesize(opts.text, voice_id, None)
             .map_err(|e| TtsError::SynthesisFailed(format!("avspeech: {e}")));
+    }
+
+    // Vosk-tts owns its own G2P + text normalisation; bypass our espeak/misaki path.
+    if let EngineChoice::Vosk {
+        model_dir,
+        speaker_id,
+        speed,
+    } = &opts.engine
+    {
+        if opts.ssml {
+            return synth_segments_vosk(opts.text, model_dir, *speaker_id, *speed);
+        }
+        return say_with_vosk(opts.text, model_dir, *speaker_id, *speed);
     }
 
     if opts.ssml {
@@ -124,8 +145,9 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
             config_path,
             speed,
         } => say_with_piper(&ipa, model_path, config_path, speed),
-        // The AVSpeech arm is handled by the early-return above. Keep a guard
-        // arm so the match stays exhaustive when the feature is enabled.
+        // Vosk and AVSpeech are handled by early-returns above. Keep guard arms
+        // so the match stays exhaustive when those features are enabled.
+        EngineChoice::Vosk { .. } => unreachable!("handled by early return above"),
         #[cfg(all(feature = "system_tts", target_os = "macos"))]
         EngineChoice::AVSpeech { .. } => unreachable!("handled by early return above"),
     }
@@ -153,6 +175,8 @@ fn say_ssml(opts: &SayOptions) -> Result<Vec<u8>, TtsError> {
             config_path,
             speed,
         } => synth_segments_piper(&segments, opts.lang, model_path, config_path, *speed),
+        // Vosk + SSML is handled by the early-return in say(); this arm keeps the match exhaustive.
+        EngineChoice::Vosk { .. } => unreachable!("handled by early return in say()"),
         // AVSpeech + SSML is rejected up-front in `say()`; this arm keeps the match exhaustive.
         #[cfg(all(feature = "system_tts", target_os = "macos"))]
         EngineChoice::AVSpeech { .. } => {
@@ -327,4 +351,59 @@ fn say_with_piper(
         .map_err(|e| TtsError::SynthesisFailed(format!("infer: {e}")))?;
     wav::encode_wav(&audio, p.sample_rate())
         .map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
+}
+
+fn say_with_vosk(
+    text: &str,
+    model_dir: &Path,
+    speaker_id: u32,
+    speed: f32,
+) -> Result<Vec<u8>, TtsError> {
+    let mut v = vosk::Vosk::load(model_dir)
+        .map_err(|e| TtsError::SynthesisFailed(format!("vosk load: {e}")))?;
+    let sample_rate = v.sample_rate();
+    let audio = v
+        .infer(text, speaker_id, speed)
+        .map_err(|e| TtsError::SynthesisFailed(format!("vosk infer: {e}")))?;
+    wav::encode_wav(&audio, sample_rate).map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
+}
+
+fn synth_segments_vosk(
+    text: &str,
+    model_dir: &Path,
+    speaker_id: u32,
+    speed: f32,
+) -> Result<Vec<u8>, TtsError> {
+    let segments =
+        ssml::parse(text).map_err(|e| TtsError::SynthesisFailed(format!("ssml: {e}")))?;
+    if segments.is_empty() {
+        return Err(TtsError::SynthesisFailed(
+            "SSML had no speakable content".into(),
+        ));
+    }
+    let mut v = vosk::Vosk::load(model_dir)
+        .map_err(|e| TtsError::SynthesisFailed(format!("vosk load: {e}")))?;
+    let sample_rate = v.sample_rate();
+    let mut out: Vec<f32> = Vec::new();
+    for seg in segments {
+        match seg {
+            ssml::Segment::Text(t) | ssml::Segment::Ipa(t) => {
+                // Vosk has no IPA passthrough; <phoneme> falls back to text.
+                let audio = v
+                    .infer(&t, speaker_id, speed)
+                    .map_err(|e| TtsError::SynthesisFailed(format!("vosk infer: {e}")))?;
+                out.extend(audio);
+            }
+            ssml::Segment::Break(dur) => {
+                let samples = ((dur.as_secs_f64() * sample_rate as f64).round()) as usize;
+                out.extend(std::iter::repeat_n(0.0_f32, samples));
+            }
+        }
+    }
+    if out.is_empty() {
+        return Err(TtsError::SynthesisFailed(
+            "no audio produced from SSML input".into(),
+        ));
+    }
+    wav::encode_wav(&out, sample_rate).map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
 }
