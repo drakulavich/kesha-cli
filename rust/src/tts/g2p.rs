@@ -229,7 +229,7 @@ pub fn text_to_ipa(text: &str, lang: &str) -> Result<String> {
         return Ok(String::new());
     }
     if let Some(misaki_lang) = misaki_lang_for(lang) {
-        return Ok(misaki_to_ipa(text, misaki_lang));
+        return misaki_to_ipa(text, misaki_lang);
     }
     text_to_ipa_charsiu(text, lang)
 }
@@ -243,18 +243,21 @@ fn misaki_lang_for(lang: &str) -> Option<misaki_rs::Language> {
 }
 
 /// Run misaki-rs and strip the U+200D zero-width joiners it inserts for
-/// diphthong cohesion — Kokoro/Piper vocabs don't include them.
-fn misaki_to_ipa(text: &str, lang: misaki_rs::Language) -> String {
+/// diphthong cohesion — Kokoro/Piper vocabs don't include them. Errors from
+/// the embedded G2P (e.g. corrupted lexicon, internal panic surfaced via
+/// poisoned mutex) propagate so callers don't synthesize silent audio
+/// indistinguishable from an empty utterance.
+fn misaki_to_ipa(text: &str, lang: misaki_rs::Language) -> Result<String> {
     let g2p = misaki_rs::G2P::new(lang);
-    match g2p.g2p(text) {
-        Ok((ipa, _)) => ipa
-            .chars()
-            .filter(|c| *c != '\u{200d}')
-            .collect::<String>()
-            .trim()
-            .to_string(),
-        Err(_) => String::new(),
-    }
+    let (ipa, _) = g2p
+        .g2p(text)
+        .map_err(|e| anyhow::anyhow!("misaki-rs g2p failed: {e:?}"))?;
+    Ok(ipa
+        .chars()
+        .filter(|c| *c != '\u{200d}')
+        .collect::<String>()
+        .trim()
+        .to_string())
 }
 
 /// CharsiuG2P fallback for languages misaki-rs doesn't support. Per-word
@@ -353,5 +356,24 @@ mod tests {
         assert!(misaki_lang_for("en-gb").is_some());
         assert!(misaki_lang_for("en-uk").is_some());
         assert!(misaki_lang_for("ru").is_none());
+    }
+
+    /// Locks the letter-spell fallback behavior we ship in v1.4.x — without
+    /// the misaki-rs `espeak` feature, OOV proper nouns expand to per-letter
+    /// English names. Documented in `docs/tts.md` so users hitting this
+    /// "kesha spells my name" symptom can find the cause. Tracked as the
+    /// follow-up under #207 to re-enable the espeak fallback.
+    #[test]
+    fn english_oov_letter_spells_without_espeak_fallback() {
+        let ipa = text_to_ipa("Kubernetes", "en-us").unwrap();
+        // A single phonemized word is short; letter-spelling expands to one
+        // emphasized chunk per letter (K-U-B-E-R-N-E-T-E-S = 10 chunks).
+        let chunks = ipa.split_whitespace().count();
+        assert!(
+            chunks >= 5,
+            "expected letter-spell (≥5 stress-marked chunks) for OOV, got {chunks}: {ipa:?}"
+        );
+        // ZWJ stripping is a pipeline-owned property, not a misaki one.
+        assert!(!ipa.contains('\u{200d}'), "ZWJ leaked: {ipa:?}");
     }
 }
