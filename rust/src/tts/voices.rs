@@ -140,8 +140,8 @@ fn resolve_vosk_ru(
         "f03" => 2,
         "m01" => 3,
         "m02" => 4,
-        other => anyhow::bail!(
-            "unknown vosk voice 'ru-vosk-{other}'. valid: ru-vosk-f01, ru-vosk-f02, \
+        _ => anyhow::bail!(
+            "unknown Russian voice '{voice_id}'. valid: ru-vosk-f01, ru-vosk-f02, \
              ru-vosk-f03, ru-vosk-m01, ru-vosk-m02"
         ),
     };

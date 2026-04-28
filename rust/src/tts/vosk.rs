@@ -12,8 +12,6 @@ use anyhow::{Context, Result};
 use std::path::Path;
 use vosk_tts::{Model, Synth};
 
-// Wired into say() in Task 1.5 — suppress dead_code until that phase lands.
-#[allow(dead_code)]
 pub const SPEAKER_COUNT: u32 = 5;
 
 pub struct Vosk {
@@ -22,7 +20,6 @@ pub struct Vosk {
     sample_rate: u32,
 }
 
-#[allow(dead_code)]
 impl Vosk {
     /// Load the model bundle from `model_dir`. Expects the directory layout
     /// produced by `vosk_ru_manifest()` (model.onnx, dictionary, config.json,

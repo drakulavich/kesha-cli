@@ -20,10 +20,12 @@ if [[ ! -f "$DEST/model.onnx" ]]; then
     https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.onnx
 fi
 
-if [[ ! -f "$DEST/af_heart.bin" ]]; then
-  echo "Downloading Kokoro af_heart.bin..."
-  curl -fL -o "$DEST/af_heart.bin" \
-    https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/af_heart.bin
+if [[ ! -f "$DEST/am_michael.bin" ]]; then
+  # Default voice is am_michael per CLAUDE.md "DEFAULT TTS VOICES MUST BE MALE".
+  # rust-test.yml's run-cargo-test.sh gates Kokoro e2e tests on this filename.
+  echo "Downloading Kokoro am_michael.bin..."
+  curl -fL -o "$DEST/am_michael.bin" \
+    https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX/resolve/main/voices/am_michael.bin
 fi
 
 # Vosk-TTS Russian (replaces old engine as of #213). Multi-speaker model,
