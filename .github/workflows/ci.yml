@@ -149,6 +149,9 @@ jobs:
         with:
           workspaces: rust
 
+      - name: 🛡️ Install protoc (vosk-tts-rs build dep)
+        run: brew install protobuf
+
       - name: 💾 Cache Kokoro models
         uses: actions/cache@v5
         with:

@@ -65,6 +65,16 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
+
+      - name: 🛡️ Install protoc (vosk-tts-rs build dep)
+        shell: bash
+        run: |
+          case "${{ matrix.os }}" in
+            macos-14)        brew install protobuf ;;
+            ubuntu-latest)   sudo apt-get update && sudo apt-get install -y protobuf-compiler ;;
+            windows-latest)  choco install protoc -y --no-progress ;;
+          esac
+
       - uses: ilammy/msvc-dev-cmd@v1
         if: matrix.os == 'windows-latest'
 

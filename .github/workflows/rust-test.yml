@@ -26,6 +26,15 @@ jobs:
         with:
           workspaces: rust
 
+      - name: 🛡️ Install protoc (vosk-tts-rs build dep)
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            macOS)   brew install protobuf ;;
+            Linux)   sudo apt-get update && sudo apt-get install -y protobuf-compiler ;;
+            Windows) choco install protoc -y --no-progress ;;
+          esac
+
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
 
