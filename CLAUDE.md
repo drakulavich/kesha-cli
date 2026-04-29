@@ -264,7 +264,11 @@ chmod +x kesha-engine && xattr -d com.apple.quarantine kesha-engine 2>/dev/null
 KESHA_CACHE_DIR="$SMOKE/cache" ./kesha-engine install --tts
 echo "Hello world" | KESHA_CACHE_DIR="$SMOKE/cache" \
   ./kesha-engine say --voice en-am_michael --out "$SMOKE/en.wav"
-file "$SMOKE/en.wav"              # must report a valid WAV with non-zero size
+file "$SMOKE/en.wav"              # must report a valid WAV
+[[ -s "$SMOKE/en.wav" ]] || { echo "ERROR: en.wav is empty — synthesis failed"; exit 1; }
+# Optional belt-and-braces: enforce a minimum byte count (1s mono f32 24kHz ≈ 96 KB).
+[[ $(stat -f%z "$SMOKE/en.wav" 2>/dev/null || stat -c%s "$SMOKE/en.wav") -gt 50000 ]] \
+  || { echo "ERROR: en.wav is suspiciously small — header-only stub?"; exit 1; }
 ```
 
 Repeat for `kesha-engine-linux-x64` (run via Docker if not on Linux). If ANY of those three steps fail, **DO NOT `npm publish`**. Either yank the GitHub release (`gh release delete vX.Y.Z --yes`, delete the tag, bump patch, retry) or push a fix and rebuild via `gh workflow run "🔨 Build Engine"`.
