@@ -1,15 +1,14 @@
 ---
 name: kesha-voice-kit
-description: Local multilingual voice toolkit — speech-to-text (STT), text-to-speech (TTS), and language detection. Runs entirely offline on Apple Silicon, Linux, and Windows. No API keys, no cloud. NVIDIA Parakeet TDT for STT across 25 European languages, Kokoro-82M + Piper VITS for TTS, plus macOS AVSpeechSynthesizer for ~180 system voices with zero install.
+description: Local multilingual voice toolkit — speech-to-text (STT), text-to-speech (TTS), and language detection. Runs entirely offline on Apple Silicon, Linux, and Windows. No API keys, no cloud. NVIDIA Parakeet TDT for STT across 25 European languages, Kokoro-82M + Vosk-TTS for TTS, plus macOS AVSpeechSynthesizer for ~180 system voices with zero install.
 emoji: 🎙️
 
 requires:
   bins: [kesha]
 
 install:
-  - kind: npm
-    packages: [@drakulavich/kesha-voice-kit]
-    flags: [--global]
+  - kind: bash
+    cmd: bun add -g "@drakulavich/kesha-voice-kit"
   - kind: bash
     cmd: kesha install
 ---
@@ -23,7 +22,7 @@ Local voice toolkit: transcribe voice messages to text, synthesize speech, detec
 ## When to use
 
 - **Voice memo arrived** (Telegram, WhatsApp, Slack, Signal .ogg/.opus/.m4a): transcribe with `kesha --json <path>` and branch on the detected language.
-- **Need to reply with audio**: synthesize with `kesha say "<text>" > reply.wav`. Auto-routes by detected language (Kokoro-82M for English, Piper for Russian). For other languages and ~180 more voices use `--voice macos-*` on macOS (zero model download).
+- **Need to reply with audio**: synthesize with `kesha say "<text>" > reply.wav`. Auto-routes by detected language (Kokoro-82M for English, Vosk-TTS for Russian). For other languages and ~180 more voices use `--voice macos-*` on macOS (zero model download).
 - **Need to detect what language a file is in** before choosing a pipeline: `kesha --json audio.ogg` returns both audio-based and text-based language detection with confidence scores.
 
 ## STT: transcribe audio
@@ -57,9 +56,9 @@ Use `lang` (or the more detailed `audioLanguage`/`textLanguage`) to decide how t
 
 ```bash
 kesha say "Hello, world" > hello.wav               # auto-routes en → Kokoro-82M
-kesha say "Привет, мир" > privet.wav              # auto-routes ru → Piper
+kesha say "Привет, мир" > privet.wav              # auto-routes ru → Vosk-TTS
 kesha say --voice macos-de-DE "Guten Tag" > de.wav # any macOS system voice — German, French, Italian, ...
-kesha say --list-voices                            # Kokoro + Piper + ~180 macos-* voices
+kesha say --list-voices                            # Kokoro + Vosk-TTS + ~180 macos-* voices
 ```
 
 Output: WAV mono float32. `--out <path>` writes to a file instead of stdout.
@@ -71,18 +70,18 @@ Output: WAV mono float32. `--out <path>` writes to a file instead of stdout.
 ## Install
 
 ```bash
-bun add --global @drakulavich/kesha-voice-kit    # or: npm i -g @drakulavich/kesha-voice-kit
+bun add -g @drakulavich/kesha-voice-kit          # global CLI install
 kesha install                                    # downloads engine (~350 MB)
-kesha install --tts                              # adds Kokoro + Piper RU + ONNX G2P (~490 MB more, for TTS)
+kesha install --tts                              # adds Kokoro + Vosk-TTS RU (~990 MB more, for TTS)
 ```
 
-No system deps — G2P runs as ONNX alongside Kokoro/Piper. `macos-*` voices need no install either — they use voices already on the Mac.
+No system deps — English G2P is embedded (`misaki-rs`); Russian G2P is bundled inside Vosk-TTS. `macos-*` voices need no install either — they use voices already on the Mac.
 
 ## Supported languages
 
 **Speech-to-text (25):** Bulgarian, Croatian, Czech, Danish, Dutch, English, Estonian, Finnish, French, German, Greek, Hungarian, Italian, Latvian, Lithuanian, Maltese, Polish, Portuguese, Romanian, Russian, Slovak, Slovenian, Spanish, Swedish, Ukrainian.
 
-**Text-to-speech:** English (Kokoro-82M, ~70 voices), Russian (Piper `ru-denis`), plus any macOS system voice via `--voice macos-*`.
+**Text-to-speech:** English (Kokoro-82M, ~70 voices), Russian (Vosk-TTS, 5 baked-in speakers — default `ru-vosk-m02`), plus any macOS system voice via `--voice macos-*`.
 
 ## Performance
 

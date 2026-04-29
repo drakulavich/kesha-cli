@@ -27,19 +27,13 @@ Pinned to the `v6.2.1` tag.
 
 Text-to-speech (English). Apache 2.0. ONNX export by [onnx-community/Kokoro-82M-v1.0-ONNX](https://huggingface.co/onnx-community/Kokoro-82M-v1.0-ONNX).
 
-### Piper voices (Russian: `ru-denis`)
+### Vosk-TTS (Russian, multi-speaker)
 
-Text-to-speech (multilingual, Piper VITS). MIT. Voice packs from [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices).
+Text-to-speech (Russian, 5 baked-in speakers). Apache 2.0. Model: [alphacep/vosk-tts](https://huggingface.co/alphacep/vosk-tts) (`vosk-model-tts-ru-0.9-multi`). Integrated via [`vosk-tts-rs`](https://github.com/alphacep/vosk-tts-rs).
 
-### CharsiuG2P ByT5-tiny (ONNX export)
+### misaki-rs (English G2P)
 
-Grapheme-to-phoneme conversion for Kokoro and Piper pipelines (#123).
-
-**License: CC-BY 4.0** (declared on the ONNX-export repo). Attribution required.
-
-- ONNX export: [klebster/g2p_multilingual_byT5_tiny_onnx](https://huggingface.co/klebster/g2p_multilingual_byT5_tiny_onnx) by Kleber Noel — CC-BY 4.0.
-- Base checkpoint: [charsiu/g2p_multilingual_byT5_tiny_16_layers_100](https://huggingface.co/charsiu/g2p_multilingual_byT5_tiny_16_layers_100) — **no explicit license declared on HuggingFace**; usage here follows the CC-BY 4.0 declared by the downstream export and the paper's terms.
-- Paper: Zhu, J., Zhang, C., & Jurgens, D. (2022). "ByT5 model for massively multilingual grapheme-to-phoneme conversion." [arXiv:2204.03067](https://arxiv.org/abs/2204.03067) · Interspeech 2022.
+Embedded grapheme-to-phoneme for English (Kokoro pipeline, #207). MIT. Source: [`misaki-rs`](https://github.com/MicheleYin/misaki-rs).
 
 ## System libraries linked by the engine binary
 
