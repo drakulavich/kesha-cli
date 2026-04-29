@@ -8,6 +8,44 @@ CLI and engine versions are **decoupled** — see `CLAUDE.md` for details. Tags
 with a `-cli` suffix are CLI-only patches that reuse the previous engine
 binary.
 
+## [1.5.0] — 2026-04-29
+
+First engine release since v1.4.1. Catches the binary up to the engine source
+that's been sitting in `main` since #209/#211/#214. CLI 1.4.4 features
+(Vosk-aware status, male English default, RU darwin auto-route) become
+functional once this engine binary is installed.
+
+### Added
+- **Vosk-TTS for Russian** (multi-speaker, 5 baked-in voices: `ru-vosk-{f01,f02,f03,m01,m02}`). Uses `vosk-tts-rs` directly — BERT prosody + dictionary G2P, no espeak-ng / no separate G2P model. Default Russian voice on non-darwin platforms is now `ru-vosk-m02` (male, per the brand-voice rule); darwin keeps `Milena` for the zero-install AVSpeech path. (#214, closes #210)
+- **misaki-rs G2P for English** in Kokoro — embedded lexicon + POS tagging, OOV words letter-spell. Replaces the ONNX ByT5-tiny G2P pipeline for English specifically. Russian is now handled inside Vosk-TTS. (#211)
+
+### Changed
+- **`kesha install --tts`** now downloads Kokoro + Vosk-TTS (~990 MB total) instead of Kokoro + Piper-RU + ONNX G2P. Disk savings on top of removing the FP32 G2P weights.
+- **`kesha status`** reports the `vosk-ru` cache directory and the 5 Vosk speakers; Piper / G2P rows removed.
+- Russian auto-routing: darwin → AVSpeech `Milena` (zero install); Linux/Windows → `ru-vosk-m02`. (#209, #214)
+
+### Removed
+- **Piper-RU** as the Russian backend. Old voice ids (`ru-denis`, `ru-irina`, etc.) no longer resolve. Migration: pass `--voice ru-vosk-m02` (default), or any of `ru-vosk-{f01,f02,f03,m01,m02}`. macOS users can also use `--voice macos-com.apple.voice.compact.ru-RU.Milena` (no model download).
+- **CharsiuG2P (ONNX ByT5-tiny)** removed — the model files (`models/g2p/byt5-tiny/*`) are no longer downloaded. Existing caches are dead weight; `rm -rf ~/.cache/kesha/models/{g2p,piper-ru}` to reclaim space.
+
+### Breaking changes
+- Russian voice ids changed (`ru-denis` → `ru-vosk-m02`). The change is in source since #214; v1.5.0 is when the engine binary actually enforces it.
+- `kesha install --tts` cache layout changed: `models/vosk-ru/` replaces `models/piper-ru/` and `models/g2p/`.
+
+### Internal
+- `protoc` install pulled into a reusable composite action (`.github/actions/install-protoc`) shared across `ci.yml`, `rust-test.yml`, and `build-engine.yml`.
+- New CI agents: `audio-quality-check` (post-commit WAV stats sanity check) and `ci-feature-matrix-auditor` (verifies every cargo default feature appears in every build-engine matrix row).
+- `rust/src/tts/kokoro.rs` — 4 pipeline bugs fixed alongside the misaki-rs swap (#211).
+
+### Upgrade
+```bash
+bun add -g @drakulavich/kesha-voice-kit@latest
+kesha install              # engine v1.5.0 (~22 MB)
+kesha install --tts        # Kokoro + Vosk-RU (~990 MB; dedupe with prior cache happens automatically)
+```
+
+If you had `models/piper-ru/` or `models/g2p/` in your cache from a previous install, they're orphaned now — `rm -rf ~/.cache/kesha/models/{g2p,piper-ru}` to reclaim ~700 MB.
+
 ## [1.4.4] — 2026-04-29
 
 ### Changed
