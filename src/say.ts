@@ -1,6 +1,14 @@
 import { getEngineBinPath, isEngineInstalled } from "./engine";
 import { log } from "./log";
 
+/**
+ * Wire format for the synthesized audio. Matches the engine's `--format` flag.
+ * - `wav` (default): RIFF WAV at the engine's native sample rate.
+ * - `ogg-opus`: OGG-encapsulated Opus, mono. The format Telegram, WhatsApp,
+ *   Signal, and Discord render as native voice messages. See #223.
+ */
+export type SayFormat = "wav" | "ogg-opus";
+
 export interface SayOptions {
   /**
    * Text to synthesize. Required for programmatic callers — `say()` does not
@@ -18,6 +26,18 @@ export interface SayOptions {
   rate?: number;
   /** Parse `text` as SSML (`<speak>…<break time="500ms"/>…</speak>`). See issue #122. */
   ssml?: boolean;
+  /**
+   * Output audio format. Defaults to `wav` (or inferred from the `out`
+   * extension when omitted: `.wav` → wav, `.ogg`/`.opus` → ogg-opus).
+   */
+  format?: SayFormat;
+  /** Opus bitrate in bits/second. Only valid with `format: "ogg-opus"`. Default 32000. */
+  bitrate?: number;
+  /**
+   * Encoder sample rate in Hz. Only valid with `format: "ogg-opus"`.
+   * Must be one of 8000, 12000, 16000, 24000, 48000. Default 24000.
+   */
+  sampleRate?: number;
 }
 
 /** Build the argv passed to `kesha-engine say` (pure, unit-testable). */
@@ -28,6 +48,9 @@ export function buildSayArgs(o: SayOptions): string[] {
   if (o.out) args.push("--out", o.out);
   if (o.rate !== undefined && o.rate !== 1.0) args.push("--rate", String(o.rate));
   if (o.ssml) args.push("--ssml");
+  if (o.format) args.push("--format", o.format);
+  if (o.bitrate !== undefined) args.push("--bitrate", String(o.bitrate));
+  if (o.sampleRate !== undefined) args.push("--sample-rate", String(o.sampleRate));
   if (o.text !== undefined && o.text.length > 0) args.push(o.text);
   return args;
 }

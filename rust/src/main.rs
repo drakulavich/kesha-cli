@@ -88,6 +88,18 @@ enum Commands {
         /// See issue #122 for the v1 tag matrix.
         #[arg(long)]
         ssml: bool,
+        /// Output audio format. Defaults to `wav` (or inferred from `--out`
+        /// extension when omitted). Supported: `wav`, `ogg-opus`. See #223.
+        #[arg(long, value_name = "FORMAT")]
+        format: Option<String>,
+        /// Opus bitrate in bits/second (e.g. 16000, 32000, 64000). Only valid
+        /// with `--format ogg-opus`. Default 32000 (Telegram-grade).
+        #[arg(long, value_name = "BPS")]
+        bitrate: Option<i32>,
+        /// Encoder sample rate. Only valid with `--format ogg-opus`. Must be
+        /// one of 8000/12000/16000/24000/48000. Default 24000.
+        #[arg(long = "sample-rate", value_name = "HZ")]
+        sample_rate: Option<u32>,
         /// Explicit model path (testing override)
         #[arg(long, hide = true)]
         model: Option<std::path::PathBuf>,
@@ -106,8 +118,65 @@ struct SayArgs {
     rate: f32,
     list_voices: bool,
     ssml: bool,
+    format: Option<String>,
+    bitrate: Option<i32>,
+    sample_rate: Option<u32>,
     model: Option<std::path::PathBuf>,
     voice_file: Option<std::path::PathBuf>,
+}
+
+/// Resolve the user-supplied `--format` / `--bitrate` / `--sample-rate` /
+/// `--out` combination into a single [`tts::OutputFormat`]. Mirrors the UX
+/// table from #223:
+///
+/// 1. If `--format` is given, parse it (`wav` | `ogg-opus`).
+/// 2. Otherwise, sniff the `--out` extension (`.wav` → wav, `.ogg`/`.opus`
+///    → ogg-opus).
+/// 3. Otherwise default to `Wav` — preserves the historical `kesha say > x`
+///    behaviour where stdout was always RIFF.
+///
+/// `--bitrate` / `--sample-rate` only matter for opus and override the
+/// defaults. When the user picked WAV but supplied either flag, we surface a
+/// clear error rather than silently dropping them.
+#[cfg(feature = "tts")]
+fn resolve_output_format(
+    format: Option<&str>,
+    bitrate: Option<i32>,
+    sample_rate: Option<u32>,
+    out: Option<&std::path::Path>,
+) -> Result<tts::OutputFormat, String> {
+    use std::str::FromStr;
+
+    let mut chosen = match (format, out) {
+        (Some(f), _) => tts::OutputFormat::from_str(f)?,
+        (None, Some(p)) => p
+            .extension()
+            .and_then(|e| e.to_str())
+            .and_then(tts::encode::format_from_extension)
+            .unwrap_or_default(),
+        (None, None) => tts::OutputFormat::default(),
+    };
+
+    if let tts::OutputFormat::OggOpus {
+        bitrate: ref mut br,
+        sample_rate: ref mut sr,
+    } = chosen
+    {
+        if let Some(b) = bitrate {
+            *br = b;
+        }
+        if let Some(r) = sample_rate {
+            *sr = r;
+        }
+    } else if matches!(chosen, tts::OutputFormat::Wav)
+        && (bitrate.is_some() || sample_rate.is_some())
+    {
+        return Err(
+            "--bitrate / --sample-rate only apply to --format ogg-opus".to_string(),
+        );
+    }
+
+    Ok(chosen)
 }
 
 #[cfg(feature = "tts")]
@@ -247,11 +316,25 @@ fn run_say(a: SayArgs) -> i32 {
         }
     };
 
-    let wav = match tts::say(tts::SayOptions {
+    let format = match resolve_output_format(
+        a.format.as_deref(),
+        a.bitrate,
+        a.sample_rate,
+        a.out.as_deref(),
+    ) {
+        Ok(f) => f,
+        Err(msg) => {
+            eprintln!("error: {msg}");
+            return 2;
+        }
+    };
+
+    let bytes = match tts::say(tts::SayOptions {
         text: &text_joined,
         lang: &espeak_lang,
         engine,
         ssml: a.ssml,
+        format,
     }) {
         Ok(w) => w,
         Err(e) => {
@@ -261,8 +344,8 @@ fn run_say(a: SayArgs) -> i32 {
     };
 
     let write_result = match a.out {
-        Some(p) => std::fs::write(&p, &wav).map_err(|e| e.to_string()),
-        None => std::io::stdout().write_all(&wav).map_err(|e| e.to_string()),
+        Some(p) => std::fs::write(&p, &bytes).map_err(|e| e.to_string()),
+        None => std::io::stdout().write_all(&bytes).map_err(|e| e.to_string()),
     };
     if let Err(msg) = write_result {
         eprintln!("error: write failed: {msg}");
@@ -325,6 +408,9 @@ fn main() -> Result<()> {
             rate,
             list_voices,
             ssml,
+            format,
+            bitrate,
+            sample_rate,
             model,
             voice_file,
         }) => {
@@ -336,6 +422,9 @@ fn main() -> Result<()> {
                 rate,
                 list_voices,
                 ssml,
+                format,
+                bitrate,
+                sample_rate,
                 model,
                 voice_file,
             }));
