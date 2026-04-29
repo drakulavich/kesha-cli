@@ -125,6 +125,19 @@ export const sayCommand = defineCommand({
       }
     }
 
+    // Reject --bitrate / --sample-rate with WAV up front to surface the error fast.
+    const hasOpusOnlyFlag = Boolean(args.bitrate) || Boolean(args["sample-rate"]);
+    if (hasOpusOnlyFlag) {
+      const outExt = typeof args.out === "string"
+        ? args.out.split(".").pop()?.toLowerCase()
+        : undefined;
+      const impliesOpus = outExt && ["ogg", "opus", "oga"].includes(outExt);
+      if (format === "wav" || (format === undefined && !impliesOpus)) {
+        log.error("--bitrate and --sample-rate are only valid with --format ogg-opus");
+        process.exit(2);
+      }
+    }
+
     const opts = {
       text,
       voice,

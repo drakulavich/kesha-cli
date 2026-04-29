@@ -37,9 +37,9 @@ pub enum OutputFormat {
     ///
     /// Per RFC 7845 the only Opus-supported sample rates are 8/12/16/24/48 kHz;
     /// callers asking for anything else are resampled before encoding. The
-    /// container always declares an *input* sample rate of 48 kHz in the
-    /// IdHeader (`opus_decoder.input_sample_rate`) — this is how players know
-    /// the original SR and is independent of the SR the encoder was created at.
+    /// IdHeader records the engine's original native rate (e.g. 24 kHz for
+    /// Kokoro, 22 050 Hz for Vosk-RU) per RFC 7845 §5.1 — players use this
+    /// for display and seeking, not decoding.
     OggOpus {
         /// Encoder bitrate in bits/second. ~32 kbps gives Telegram-quality
         /// voice; 16 kbps is intelligible but tinny; 64 kbps is broadcast-grade.
@@ -154,18 +154,17 @@ fn encode_ogg_opus(
         );
     }
     if !(6_000..=510_000).contains(&bitrate) {
-        anyhow::bail!(
-            "ogg-opus: --bitrate must be 6000..=510000 bps, got {bitrate}"
-        );
+        anyhow::bail!("ogg-opus: --bitrate must be 6000..=510000 bps, got {bitrate}");
     }
 
     // Resample to `target_sr` if the engine's native rate doesn't match. We
     // re-use the rubato sinc machinery from `crate::audio` rather than pulling
     // in a third resampler dep.
-    let resampled: Vec<f32> = if src_rate == target_sr {
-        samples.to_vec()
+    use std::borrow::Cow;
+    let resampled: Cow<[f32]> = if src_rate == target_sr {
+        Cow::Borrowed(samples)
     } else {
-        resample_mono(samples, src_rate, target_sr)?
+        Cow::Owned(resample_mono(samples, src_rate, target_sr)?)
     };
 
     // Build the encoder. `Application::Voip` matches what the issue wants:
@@ -184,7 +183,7 @@ fn encode_ogg_opus(
     //   page 0: OpusHead (BOS, sequence 0, granule 0)
     //   page 1: OpusTags (sequence 1, granule 0)
     //   page 2..: audio packets, with EOS on the last
-    let mut buf: Vec<u8> = Vec::with_capacity(samples.len()); // grows as needed
+    let mut buf: Vec<u8> = Vec::with_capacity(samples.len());
     let cursor = std::io::Cursor::new(&mut buf);
     let mut writer = ogg::PacketWriter::new(cursor);
 
@@ -209,8 +208,8 @@ fn encode_ogg_opus(
     // Granule position = number of decoded samples produced *so far* at 48 kHz.
     // It includes the pre-skip, which players subtract before playback. We
     // accumulate sample count in target_sr and convert once per page boundary.
-    let total_frames = resampled.len();
-    let n_full_packets = total_frames / frame_size;
+    let total_samples = resampled.len();
+    let n_full_packets = total_samples / frame_size;
     let mut sample_pos_48k: u64 = u64::from(PRE_SKIP_48K);
 
     let mut pcm_buf = vec![0.0f32; frame_size];
@@ -225,7 +224,7 @@ fn encode_ogg_opus(
 
         sample_pos_48k += u64::from(target_to_48k(frame_size as u32, target_sr));
 
-        let is_last = i + 1 == n_full_packets && total_frames % frame_size == 0;
+        let is_last = i + 1 == n_full_packets && total_samples % frame_size == 0;
         let info = if is_last {
             ogg::PacketWriteEndInfo::EndStream
         } else {
@@ -239,12 +238,14 @@ fn encode_ogg_opus(
     // Tail frame: zero-pad the last partial frame so libopus can encode it.
     // The granule position records *real* samples only — pad samples don't
     // increment absgp, so players truncate cleanly at the original duration.
-    let leftover = total_frames - n_full_packets * frame_size;
+    let leftover = total_samples - n_full_packets * frame_size;
     if leftover > 0 {
-        for (slot, src) in pcm_buf.iter_mut().zip(&resampled[n_full_packets * frame_size..]) {
+        for (slot, src) in pcm_buf
+            .iter_mut()
+            .zip(&resampled[n_full_packets * frame_size..])
+        {
             *slot = *src;
         }
-        // Zero-pad the tail.
         for slot in pcm_buf.iter_mut().skip(leftover) {
             *slot = 0.0;
         }
@@ -367,7 +368,8 @@ fn resample_mono(samples: &[f32], src_rate: u32, dst_rate: u32) -> anyhow::Resul
         if frame_offset + frames_needed > total_frames {
             break;
         }
-        let chunk: Vec<Vec<f32>> = vec![samples[frame_offset..frame_offset + frames_needed].to_vec()];
+        let chunk: Vec<Vec<f32>> =
+            vec![samples[frame_offset..frame_offset + frames_needed].to_vec()];
         let in_adapter = SequentialSliceOfVecs::new(&chunk, channels, frames_needed)
             .map_err(|e| anyhow::anyhow!("resample input: {e}"))?;
 
@@ -479,10 +481,7 @@ mod tests {
         assert_eq!(head[8], 1, "version");
         assert_eq!(head[9], 1, "channels (mono)");
         // pre-skip
-        assert_eq!(
-            u16::from_le_bytes([head[10], head[11]]),
-            PRE_SKIP_48K
-        );
+        assert_eq!(u16::from_le_bytes([head[10], head[11]]), PRE_SKIP_48K);
         // input sample rate
         assert_eq!(
             u32::from_le_bytes([head[12], head[13], head[14], head[15]]),
@@ -500,9 +499,7 @@ mod tests {
         let vendor = std::str::from_utf8(&tags[12..12 + vlen]).unwrap();
         assert!(vendor.starts_with("kesha-voice-kit "));
         // Trailing user-comment count = 0
-        let cnt = u32::from_le_bytes(
-            tags[12 + vlen..12 + vlen + 4].try_into().unwrap(),
-        );
+        let cnt = u32::from_le_bytes(tags[12 + vlen..12 + vlen + 4].try_into().unwrap());
         assert_eq!(cnt, 0);
     }
 
@@ -583,7 +580,9 @@ mod tests {
         // Vosk-RU runs at 22.05 kHz natively. We can't feed that to libopus
         // directly, so the encoder must resample to a supported rate first.
         let src_sr = 22_050u32;
-        let samples: Vec<f32> = (0..src_sr).map(|i| (i as f32 * 0.001).sin() * 0.2).collect();
+        let samples: Vec<f32> = (0..src_sr)
+            .map(|i| (i as f32 * 0.001).sin() * 0.2)
+            .collect();
         let bytes = encode(&samples, src_sr, OutputFormat::ogg_opus_default()).unwrap();
         assert_eq!(&bytes[..4], b"OggS", "resampled output is still valid Ogg");
     }
