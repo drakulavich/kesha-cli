@@ -70,6 +70,8 @@ make smoke-test && npm publish --access public
 
 **Tag names are one-use** (immutable releases). Broken release → bump patch. Debug builds: `gh workflow run "🔨 Build Engine" --ref main`.
 
+**Validate the NEW engine binary before `npm publish`.** `make smoke-test` is *not* enough — `bun link` may not override an existing global `kesha`, so the smoke test passes against the previous version. Between `gh release edit --draft=false` and `npm publish`, download the just-published asset directly and run `--version`, `--capabilities-json`, and one real feature exercise (e.g. `kesha-engine say --voice en-am_michael --out /tmp/test.wav` against a fresh `KESHA_CACHE_DIR`). See "make smoke-test ALONE DOES NOT VALIDATE A NEW ENGINE" in CLAUDE.md for the copy-paste recipe.
+
 ## OpenClaw Plugin
 
 **How it actually works:** OpenClaw's `type: "cli"` audio runner spawns `kesha --format transcript {{MediaPath}}` and captures stdout. The `registerMediaUnderstandingProvider` path requires API keys (`requireApiKey()`) and silently fails for local CLI tools. The plugin registers a provider for discoverability only.
