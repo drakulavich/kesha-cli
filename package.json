@@ -1,6 +1,6 @@
 {
   "name": "@drakulavich/kesha-voice-kit",
-  "version": "1.5.0",
+  "version": "1.6.0",
   "description": "Open-source voice toolkit. Speech-to-text (25 langs, ~19x faster than Whisper on Apple Silicon, ONNX fallback on CPU), text-to-speech (Kokoro + Vosk-TTS + ~180 macOS system voices, SSML), voice-activity detection, language detection (107 langs). Rust engine, OpenClaw skill.",
   "type": "module",
   "bin": {
@@ -30,7 +30,7 @@
     ]
   },
   "keshaEngine": {
-    "version": "1.5.0"
+    "version": "1.6.0"
   },
   "scripts": {
     "test": "bun test",
@@ -58,7 +58,7 @@
     "type": "git",
     "url": "git+https://github.com/drakulavich/kesha-voice-kit.git"
   },
-  "homepage": "https://github.com/drakulavich/kesha-voice-kit#readme",
+  "homepage": "https://drakulavich.github.io/kesha-voice-kit/",
   "bugs": {
     "url": "https://github.com/drakulavich/kesha-voice-kit/issues"
   },
