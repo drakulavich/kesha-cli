@@ -85,6 +85,21 @@ jobs:
           Write-Host "MSVC linker: $linkPath"
           Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linkPath"
 
+      - name: Install system Opus
+        # audiopus_sys / opusic-sys (added in #224 for OGG/Opus output) try
+        # pkg-config first; on miss they fall back to a vendored libopus
+        # cmake build that's incompatible with macOS runner cmake ≥4.
+        # Installing the system lib makes pkg-config succeed and skips
+        # the cmake build entirely.
+        shell: bash
+        run: |
+          if [[ "${{ matrix.os }}" == "ubuntu-latest" ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+          elif [[ "${{ matrix.os }}" == "macos-14" ]]; then
+            brew install opus pkg-config
+          fi
+
       - name: Build release binary
         run: cd rust && cargo build --release --target ${{ matrix.target }} --features ${{ matrix.features }} --no-default-features
       - name: Prepare artifact

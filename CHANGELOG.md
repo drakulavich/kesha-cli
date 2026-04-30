@@ -8,6 +8,11 @@ CLI and engine versions are **decoupled** — see `CLAUDE.md` for details. Tags
 with a `-cli` suffix are CLI-only patches that reuse the previous engine
 binary.
 
+## [Unreleased]
+
+### Added
+- **`kesha say --format ogg-opus`** — produces OGG/Opus voice notes (mono, 24 kHz @ 32 kbps by default) instead of WAV. The output file is the messenger-friendly format consumed by Telegram `sendVoice` and similar APIs. New flags `--bitrate` and `--sample-rate` tune the encoder; format is also inferred from `--out` extension (`.ogg` / `.opus` / `.oga`). All four engine paths (Kokoro plain/SSML, Vosk-TTS plain/SSML, AVSpeech) flow through the new encoder. WAV output remains the default and is byte-exact with the previous code path. (closes #223)
+
 ## [1.5.0] — 2026-04-29
 
 First engine release since v1.4.1. Catches the binary up to the engine source

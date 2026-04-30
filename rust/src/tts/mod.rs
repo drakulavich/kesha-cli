@@ -2,6 +2,7 @@
 
 use std::path::Path;
 
+pub mod encode;
 pub mod g2p;
 pub mod kokoro;
 pub mod ssml;
@@ -9,6 +10,8 @@ pub mod tokenizer;
 pub mod voices;
 pub mod vosk;
 pub mod wav;
+
+pub use encode::OutputFormat;
 
 #[cfg(all(feature = "system_tts", target_os = "macos"))]
 pub mod avspeech;
@@ -68,6 +71,10 @@ pub struct SayOptions<'a> {
     /// When true, `text` is parsed as SSML (issue #122). `<break>` tags yield
     /// silence of the declared duration; unknown tags are stripped with a warning.
     pub ssml: bool,
+    /// Wire format for the returned bytes. Defaults to `Wav` so existing
+    /// callers (and the historical `kesha say > out.wav` flow) stay
+    /// bit-exact. See #223.
+    pub format: OutputFormat,
 }
 
 /// Synthesize speech and return WAV bytes (mono float32; sample rate depends on engine).
@@ -106,8 +113,12 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
                 "SSML is not yet supported with macos-* voices (#141 follow-up)".into(),
             ));
         }
-        return avspeech::synthesize(opts.text, voice_id, None)
-            .map_err(|e| TtsError::SynthesisFailed(format!("avspeech: {e}")));
+        let wav_bytes = avspeech::synthesize(opts.text, voice_id, None)
+            .map_err(|e| TtsError::SynthesisFailed(format!("avspeech: {e}")))?;
+        // The Swift sidecar always returns WAV. For non-WAV `--format`, decode
+        // back to PCM and re-encode — cheap (a few hundred ms of audio) and
+        // keeps the encoder pipeline single-pathed.
+        return transcode_to(&wav_bytes, opts.format);
     }
 
     // Vosk-tts owns its own G2P + text normalisation; bypass our espeak/misaki path.
@@ -118,9 +129,9 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
     } = &opts.engine
     {
         if opts.ssml {
-            return synth_segments_vosk(opts.text, model_dir, *speaker_id, *speed);
+            return synth_segments_vosk(opts.text, model_dir, *speaker_id, *speed, opts.format);
         }
-        return say_with_vosk(opts.text, model_dir, *speaker_id, *speed);
+        return say_with_vosk(opts.text, model_dir, *speaker_id, *speed, opts.format);
     }
 
     if opts.ssml {
@@ -140,7 +151,7 @@ pub fn say(opts: SayOptions) -> Result<Vec<u8>, TtsError> {
             model_path,
             voice_path,
             speed,
-        } => say_with_kokoro(&ipa, model_path, voice_path, speed),
+        } => say_with_kokoro(&ipa, model_path, voice_path, speed, opts.format),
         // Vosk and AVSpeech are handled by early-returns above. Keep guard arms
         // so the match stays exhaustive when those features are enabled.
         EngineChoice::Vosk { .. } => unreachable!("handled by early return above"),
@@ -165,7 +176,14 @@ fn say_ssml(opts: &SayOptions) -> Result<Vec<u8>, TtsError> {
             model_path,
             voice_path,
             speed,
-        } => synth_segments_kokoro(&segments, opts.lang, model_path, voice_path, *speed),
+        } => synth_segments_kokoro(
+            &segments,
+            opts.lang,
+            model_path,
+            voice_path,
+            *speed,
+            opts.format,
+        ),
         // Vosk + SSML is handled by the early-return in say(); this arm keeps the match exhaustive.
         EngineChoice::Vosk { .. } => unreachable!("handled by early return in say()"),
         // AVSpeech + SSML is rejected up-front in `say()`; this arm keeps the match exhaustive.
@@ -182,6 +200,7 @@ fn synth_segments_kokoro(
     model_path: &Path,
     voice_path: &Path,
     speed: f32,
+    format: OutputFormat,
 ) -> Result<Vec<u8>, TtsError> {
     let tok = tokenizer::Tokenizer::load()
         .map_err(|e| TtsError::SynthesisFailed(format!("tokenizer load: {e}")))?;
@@ -209,7 +228,7 @@ fn synth_segments_kokoro(
             "no audio produced from SSML input".into(),
         ));
     }
-    wav::encode_wav(&out, sample_rate).map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
+    encode_or_fail(&out, sample_rate, format)
 }
 
 fn synth_ipa_kokoro(
@@ -239,6 +258,7 @@ fn say_with_kokoro(
     model_path: &Path,
     voice_path: &Path,
     speed: f32,
+    format: OutputFormat,
 ) -> Result<Vec<u8>, TtsError> {
     let tok = tokenizer::Tokenizer::load()
         .map_err(|e| TtsError::SynthesisFailed(format!("tokenizer load: {e}")))?;
@@ -260,8 +280,7 @@ fn say_with_kokoro(
     let audio = k
         .infer(&padded, style, speed)
         .map_err(|e| TtsError::SynthesisFailed(format!("infer: {e}")))?;
-    wav::encode_wav(&audio, kokoro::SAMPLE_RATE)
-        .map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
+    encode_or_fail(&audio, kokoro::SAMPLE_RATE, format)
 }
 
 fn say_with_vosk(
@@ -269,6 +288,7 @@ fn say_with_vosk(
     model_dir: &Path,
     speaker_id: u32,
     speed: f32,
+    format: OutputFormat,
 ) -> Result<Vec<u8>, TtsError> {
     let mut v = vosk::Vosk::load(model_dir)
         .map_err(|e| TtsError::SynthesisFailed(format!("vosk load: {e}")))?;
@@ -276,7 +296,7 @@ fn say_with_vosk(
     let audio = v
         .infer(text, speaker_id, speed)
         .map_err(|e| TtsError::SynthesisFailed(format!("vosk infer: {e}")))?;
-    wav::encode_wav(&audio, sample_rate).map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
+    encode_or_fail(&audio, sample_rate, format)
 }
 
 fn synth_segments_vosk(
@@ -284,6 +304,7 @@ fn synth_segments_vosk(
     model_dir: &Path,
     speaker_id: u32,
     speed: f32,
+    format: OutputFormat,
 ) -> Result<Vec<u8>, TtsError> {
     let segments =
         ssml::parse(text).map_err(|e| TtsError::SynthesisFailed(format!("ssml: {e}")))?;
@@ -313,5 +334,58 @@ fn synth_segments_vosk(
             "no audio produced from SSML input".into(),
         ));
     }
-    wav::encode_wav(&out, sample_rate).map_err(|e| TtsError::SynthesisFailed(format!("wav: {e}")))
+    encode_or_fail(&out, sample_rate, format)
+}
+
+/// Common tail: PCM samples → chosen wire format. Centralised so every engine
+/// path emits the same error shape when encoding fails (#223).
+fn encode_or_fail(
+    samples: &[f32],
+    sample_rate: u32,
+    format: OutputFormat,
+) -> Result<Vec<u8>, TtsError> {
+    encode::encode(samples, sample_rate, format)
+        .map_err(|e| TtsError::SynthesisFailed(format!("encode: {e}")))
+}
+
+/// Decode WAV bytes the AVSpeech sidecar handed back to PCM, then re-encode in
+/// the caller's chosen format. WAV → WAV is a no-op short-circuit so we don't
+/// pay a hound round-trip for the historical default path.
+#[cfg(all(feature = "system_tts", target_os = "macos"))]
+fn transcode_to(wav_bytes: &[u8], format: OutputFormat) -> Result<Vec<u8>, TtsError> {
+    if matches!(format, OutputFormat::Wav) {
+        return Ok(wav_bytes.to_vec());
+    }
+    let reader = hound::WavReader::new(std::io::Cursor::new(wav_bytes))
+        .map_err(|e| TtsError::SynthesisFailed(format!("avspeech wav decode: {e}")))?;
+    let spec = reader.spec();
+    let samples = wav_to_mono_f32(reader)
+        .map_err(|e| TtsError::SynthesisFailed(format!("avspeech wav decode: {e}")))?;
+    encode_or_fail(&samples, spec.sample_rate, format)
+}
+
+/// Read all samples from a WAV reader, mixing stereo to mono and converting
+/// integer PCM to f32. AVSpeech emits 22.05 kHz 16-bit mono on macOS today,
+/// but we keep this generic so a future sidecar change doesn't break us.
+#[cfg(all(feature = "system_tts", target_os = "macos"))]
+fn wav_to_mono_f32<R: std::io::Read>(mut reader: hound::WavReader<R>) -> anyhow::Result<Vec<f32>> {
+    let spec = reader.spec();
+    let channels = spec.channels as usize;
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<f32>, _>>()?,
+        hound::SampleFormat::Int => {
+            let max = (1i64 << (spec.bits_per_sample - 1)) as f32;
+            reader
+                .samples::<i32>()
+                .map(|s| s.map(|v| v as f32 / max))
+                .collect::<Result<Vec<f32>, _>>()?
+        }
+    };
+    if channels == 1 {
+        return Ok(samples);
+    }
+    Ok(samples
+        .chunks_exact(channels)
+        .map(|frame| frame.iter().sum::<f32>() / channels as f32)
+        .collect())
 }
