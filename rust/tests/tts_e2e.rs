@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use kesha_engine::tts::{self, EngineChoice, SayOptions, TtsError};
+use kesha_engine::tts::{self, EngineChoice, OutputFormat, SayOptions, TtsError};
 
 #[test]
 fn kokoro_hello_world_produces_wav() {
@@ -25,6 +25,7 @@ fn kokoro_hello_world_produces_wav() {
             speed: 1.0,
         },
         ssml: false,
+        format: OutputFormat::Wav,
     })
     .unwrap();
     assert_eq!(&wav[..4], b"RIFF", "not a WAV");
@@ -46,6 +47,7 @@ fn empty_text_errors() {
             speed: 1.0,
         },
         ssml: false,
+        format: OutputFormat::Wav,
     });
     assert!(matches!(res, Err(TtsError::EmptyText)));
 }
@@ -62,6 +64,7 @@ fn too_long_errors() {
             speed: 1.0,
         },
         ssml: false,
+        format: OutputFormat::Wav,
     });
     assert!(matches!(res, Err(TtsError::TextTooLong { .. })));
 }
@@ -84,6 +87,7 @@ fn kokoro_ssml_with_break_produces_wav() {
             speed: 1.0,
         },
         ssml: true,
+        format: OutputFormat::Wav,
     })
     .unwrap();
     assert_eq!(&wav[..4], b"RIFF");
@@ -107,6 +111,7 @@ fn ssml_input_without_speak_root_errors() {
             speed: 1.0,
         },
         ssml: true,
+        format: OutputFormat::Wav,
     });
     assert!(matches!(res, Err(TtsError::SynthesisFailed(_))));
 }

@@ -1,7 +1,7 @@
 import { defineCommand } from "citty";
 import { detectTextLanguageEngine, getEngineBinPath } from "../engine";
 import { log } from "../log";
-import { say, SayError } from "../say";
+import { say, SayError, type SayFormat } from "../say";
 
 /**
  * Darwin defaults to AVSpeech Milena — zero install, no model download required.
@@ -54,18 +54,33 @@ async function resolveText(inline: string | undefined): Promise<string> {
 export const sayCommand = defineCommand({
   meta: {
     name: "say",
-    description: "Synthesize speech from text (TTS). Writes WAV to stdout (or --out file).",
+    description:
+      "Synthesize speech from text (TTS). Writes audio to stdout (or --out file). Defaults to WAV; use --format ogg-opus for messenger-ready voice notes.",
   },
   args: {
     text: { type: "positional", required: false, description: "Text to speak (stdin if omitted)" },
     voice: { type: "string", description: "Voice id, e.g. en-am_michael" },
     lang: { type: "string", description: "BCP 47 language code (default en-us)" },
-    out: { type: "string", description: "Write WAV to file instead of stdout" },
+    out: { type: "string", description: "Write audio to file instead of stdout" },
     rate: { type: "string", description: "Speaking rate 0.5–2.0", default: "1.0" },
     "list-voices": { type: "boolean", description: "List installed voices and exit" },
     ssml: {
       type: "boolean",
       description: "Parse input as SSML (supports <speak>, <break>; strips unknown tags)",
+    },
+    format: {
+      type: "string",
+      description:
+        "Output format: wav (default) or ogg-opus (Telegram-ready voice note). Inferred from --out extension when omitted.",
+    },
+    bitrate: {
+      type: "string",
+      description: "Opus bitrate in bits/sec (e.g. 32000). Only with --format ogg-opus.",
+    },
+    "sample-rate": {
+      type: "string",
+      description:
+        "Opus encoder sample rate (8000/12000/16000/24000/48000). Only with --format ogg-opus.",
     },
     verbose: {
       type: "boolean",
@@ -94,6 +109,35 @@ export const sayCommand = defineCommand({
     const explicitVoice = typeof args.voice === "string" ? args.voice : undefined;
     const voice = explicitVoice ?? (await autoRouteVoice(text));
 
+    // Validate --format up front so we surface a clear error before spawning
+    // the engine subprocess. The engine repeats the check authoritatively, but
+    // catching it here gives the user a faster failure mode in scripts.
+    const fmtArg = typeof args.format === "string" ? args.format.toLowerCase() : undefined;
+    let format: SayFormat | undefined;
+    if (fmtArg) {
+      if (fmtArg === "wav" || fmtArg === "ogg-opus") {
+        format = fmtArg;
+      } else if (fmtArg === "opus" || fmtArg === "ogg") {
+        format = "ogg-opus";
+      } else {
+        log.error(`unknown --format '${args.format}'. supported: wav, ogg-opus`);
+        process.exit(2);
+      }
+    }
+
+    // Reject --bitrate / --sample-rate with WAV up front to surface the error fast.
+    const hasOpusOnlyFlag = Boolean(args.bitrate) || Boolean(args["sample-rate"]);
+    if (hasOpusOnlyFlag) {
+      const outExt = typeof args.out === "string"
+        ? args.out.split(".").pop()?.toLowerCase()
+        : undefined;
+      const impliesOpus = outExt && ["ogg", "opus", "oga"].includes(outExt);
+      if (format === "wav" || (format === undefined && !impliesOpus)) {
+        log.error("--bitrate and --sample-rate are only valid with --format ogg-opus");
+        process.exit(2);
+      }
+    }
+
     const opts = {
       text,
       voice,
@@ -101,18 +145,21 @@ export const sayCommand = defineCommand({
       out: typeof args.out === "string" ? args.out : undefined,
       rate: args.rate ? Number(args.rate) : undefined,
       ssml: Boolean(args.ssml),
+      format,
+      bitrate: args.bitrate ? Number(args.bitrate) : undefined,
+      sampleRate: args["sample-rate"] ? Number(args["sample-rate"]) : undefined,
     };
 
     try {
       const startedAt = performance.now();
-      const wav = await say(opts);
+      const audio = await say(opts);
       const ttsTimeMs = Math.round(performance.now() - startedAt);
       if (args.verbose) {
-        // stderr — stdout may carry raw WAV bytes when --out is omitted.
+        // stderr — stdout may carry raw audio bytes when --out is omitted.
         console.error(`TTS time: ${ttsTimeMs}ms`);
       }
       if (!opts.out) {
-        process.stdout.write(wav);
+        process.stdout.write(audio);
       }
     } catch (err) {
       if (err instanceof SayError) {
