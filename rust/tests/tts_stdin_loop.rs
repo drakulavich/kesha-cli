@@ -167,12 +167,9 @@ fn loop_synthesises_kokoro_and_caches_session() {
     // (`$KESHA_CACHE_DIR/models/kokoro-82m/{model.onnx,voices/am_michael.bin}`)
     // and point the spawned engine at it. Same approach as
     // `tts_smoke.rs::resolves_from_cache_when_installed`.
-    let (model, voice) = match kokoro_paths() {
-        Some(p) => p,
-        None => {
-            eprintln!("skipping: KOKORO_MODEL + KOKORO_VOICE not set");
-            return;
-        }
+    let Some((model, voice)) = kokoro_paths() else {
+        eprintln!("skipping: KOKORO_MODEL + KOKORO_VOICE not set");
+        return;
     };
     if !std::path::Path::new(&model).exists() || !std::path::Path::new(&voice).exists() {
         eprintln!("skipping: KOKORO_MODEL / KOKORO_VOICE files missing");

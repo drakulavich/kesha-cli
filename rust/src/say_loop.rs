@@ -127,16 +127,14 @@ pub fn run() -> i32 {
                 return 4;
             }
         }
-        let line = match std::str::from_utf8(&buf) {
-            Ok(s) => s.trim_end_matches(['\n', '\r']),
-            Err(_) => {
-                // A request whose bytes aren't valid UTF-8 must surface as a
-                // visible err frame, otherwise the client blocks forever on
-                // the response that never arrives.
-                let _ = write_err(&mut stdout, 0, "request is not valid UTF-8");
-                continue;
-            }
+        let Ok(s) = std::str::from_utf8(&buf) else {
+            // A request whose bytes aren't valid UTF-8 must surface as a
+            // visible err frame, otherwise the client blocks forever on
+            // the response that never arrives.
+            let _ = write_err(&mut stdout, 0, "request is not valid UTF-8");
+            continue;
         };
+        let line = s.trim_end_matches(['\n', '\r']);
         if line.trim().is_empty() {
             continue;
         }
