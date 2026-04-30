@@ -55,14 +55,22 @@ struct LoopChild {
 
 impl LoopChild {
     fn spawn() -> Self {
+        Self::spawn_with_cache(None)
+    }
+
+    fn spawn_with_cache(cache_dir: Option<&std::path::Path>) -> Self {
         let bin = env!("CARGO_BIN_EXE_kesha-engine");
-        let mut child = Command::new(bin)
-            .args(["say", "--stdin-loop"])
+        let mut cmd = Command::new(bin);
+        cmd.args(["say", "--stdin-loop"])
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("spawn engine");
+            .stderr(Stdio::piped());
+        if let Some(p) = cache_dir {
+            cmd.env("KESHA_CACHE_DIR", p);
+            // Mirror the macOS dev runtime convention from tts_smoke.rs.
+            cmd.env("DYLD_FALLBACK_LIBRARY_PATH", "/opt/homebrew/lib");
+        }
+        let mut child = cmd.spawn().expect("spawn engine");
         let stdin = child.stdin.take().expect("stdin");
         let stdout = child.stdout.take().expect("stdout");
         LoopChild {
@@ -151,19 +159,30 @@ fn kokoro_paths() -> Option<(String, String)> {
 
 #[test]
 fn loop_synthesises_kokoro_and_caches_session() {
-    // The CLI test pinning `--model` / `--voice-file` is the testing override
-    // path. The loop-mode JSON request takes voice-by-name only, so this test
-    // must use the default cache layout. If the test runner hasn't populated
-    // KESHA_CACHE_DIR with Kokoro models (`kesha install --tts`), skip.
-    let cache_has_kokoro = kokoro_paths()
-        .map(|(model, _)| std::path::Path::new(&model).exists())
-        .unwrap_or(false);
-    if !cache_has_kokoro {
-        eprintln!("skipping: KOKORO_MODEL not set / file missing");
+    // The loop-mode JSON request takes voice-by-name only — no `--model`
+    // override path. So the test must materialise the runtime cache layout
+    // (`$KESHA_CACHE_DIR/models/kokoro-82m/{model.onnx,voices/am_michael.bin}`)
+    // and point the spawned engine at it. Same approach as
+    // `tts_smoke.rs::resolves_from_cache_when_installed`.
+    let (model, voice) = match kokoro_paths() {
+        Some(p) => p,
+        None => {
+            eprintln!("skipping: KOKORO_MODEL + KOKORO_VOICE not set");
+            return;
+        }
+    };
+    if !std::path::Path::new(&model).exists() || !std::path::Path::new(&voice).exists() {
+        eprintln!("skipping: KOKORO_MODEL / KOKORO_VOICE files missing");
         return;
     }
 
-    let mut c = LoopChild::spawn();
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let voices_dir = tmp.path().join("models/kokoro-82m/voices");
+    std::fs::create_dir_all(&voices_dir).expect("mkdir voices");
+    std::fs::copy(&model, tmp.path().join("models/kokoro-82m/model.onnx")).expect("copy model");
+    std::fs::copy(&voice, voices_dir.join("am_michael.bin")).expect("copy voice");
+
+    let mut c = LoopChild::spawn_with_cache(Some(tmp.path()));
     let req1 = r#"{"id": 1, "text": "Hello", "voice": "en-am_michael", "format": "wav"}"#;
     let req2 = r#"{"id": 2, "text": "World", "voice": "en-am_michael", "format": "wav"}"#;
 
