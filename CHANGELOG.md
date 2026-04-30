@@ -10,8 +10,19 @@ binary.
 
 ## [Unreleased]
 
+## [1.6.0] — 2026-04-30
+
+Engine release. Adds OGG/Opus voice-note output, restores Windows MSVC builds via a vendored vosk-tts crate, and tightens the Opus hot path. CLI surface is unchanged — npm consumers get the new format flag automatically once the engine binary updates.
+
 ### Added
-- **`kesha say --format ogg-opus`** — produces OGG/Opus voice notes (mono, 24 kHz @ 32 kbps by default) instead of WAV. The output file is the messenger-friendly format consumed by Telegram `sendVoice` and similar APIs. New flags `--bitrate` and `--sample-rate` tune the encoder; format is also inferred from `--out` extension (`.ogg` / `.opus` / `.oga`). All four engine paths (Kokoro plain/SSML, Vosk-TTS plain/SSML, AVSpeech) flow through the new encoder. WAV output remains the default and is byte-exact with the previous code path. (closes #223)
+- **`kesha say --format ogg-opus`** — produces OGG/Opus voice notes (mono, 24 kHz @ 32 kbps by default) instead of WAV. The output file is the messenger-friendly format consumed by Telegram `sendVoice` and similar APIs. New flags `--bitrate` and `--sample-rate` tune the encoder; format is also inferred from `--out` extension (`.ogg` / `.opus` / `.oga`). All four engine paths (Kokoro plain/SSML, Vosk-TTS plain/SSML, AVSpeech) flow through the new encoder. WAV output remains the default and is byte-exact with the previous code path. (#224, closes #223)
+
+### Changed
+- **Vendored `vosk-tts-rs`** into `rust/vendor/vosk-tts` so Windows builds compile under MSVC again — upstream's `tonic`/`prost` chain pulled in MinGW-only deps that broke the Windows engine artifact. Behaviour and the public Rust API are unchanged. (#225, closes #216)
+- npm `homepage` field now points at the project landing page (`https://drakulavich.github.io/kesha-voice-kit/`) instead of the README anchor.
+
+### Performance
+- **OGG/Opus encoder hot path:** dropped a redundant `pcm_buf.copy_from_slice` per 20 ms frame (saves N memcpys for an N-frame utterance), and right-sized the output `Vec::with_capacity` from `samples.len()` (≈6× over) to `bitrate × duration / 8 + 4 KiB`. (#226)
 
 ## [1.5.0] — 2026-04-29
 
