@@ -47,14 +47,20 @@ fn ogg_opus_starts_with_ogg_page_and_opus_head() {
     // Channel count at offset +9 must be 1 (mono); pre-skip is non-zero.
     assert_eq!(bytes[head_at + 9], 1, "must be mono");
     let pre_skip = u16::from_le_bytes([bytes[head_at + 10], bytes[head_at + 11]]);
-    assert!(pre_skip > 0, "pre_skip must be set so players strip warm-up");
+    assert!(
+        pre_skip > 0,
+        "pre_skip must be set so players strip warm-up"
+    );
     let input_sr = u32::from_le_bytes([
         bytes[head_at + 12],
         bytes[head_at + 13],
         bytes[head_at + 14],
         bytes[head_at + 15],
     ]);
-    assert_eq!(input_sr, sr, "OpusHead.input_sample_rate must reflect engine SR");
+    assert_eq!(
+        input_sr, sr,
+        "OpusHead.input_sample_rate must reflect engine SR"
+    );
 }
 
 #[test]
@@ -174,9 +180,7 @@ fn opus_bitrate_override_changes_output_size() {
 // =============================================================================
 
 fn find(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    haystack
-        .windows(needle.len())
-        .position(|w| w == needle)
+    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 fn find_all(haystack: &[u8], needle: &[u8]) -> Vec<usize> {

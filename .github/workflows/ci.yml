@@ -160,6 +160,13 @@ jobs:
       - name: 📥 Download Kokoro models (if cache miss)
         run: bash rust/ci/download-kokoro.sh "$KOKORO_CACHE"
 
+      - name: 🎧 Install system Opus
+        # audiopus_sys / opusic-sys fall back to a cmake build of vendored
+        # libopus when pkg-config can't locate it, and the vendored
+        # CMakeLists.txt is incompatible with macOS runner cmake ≥4. Install
+        # the system lib so pkg-config succeeds and cmake never runs.
+        run: brew install opus pkg-config
+
       - name: 🦀 Build kesha-engine from source (with TTS)
         env:
           LIBCLANG_PATH: /Library/Developer/CommandLineTools/usr/lib

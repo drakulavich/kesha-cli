@@ -171,9 +171,7 @@ fn resolve_output_format(
     } else if matches!(chosen, tts::OutputFormat::Wav)
         && (bitrate.is_some() || sample_rate.is_some())
     {
-        return Err(
-            "--bitrate / --sample-rate only apply to --format ogg-opus".to_string(),
-        );
+        return Err("--bitrate / --sample-rate only apply to --format ogg-opus".to_string());
     }
 
     Ok(chosen)
@@ -345,7 +343,9 @@ fn run_say(a: SayArgs) -> i32 {
 
     let write_result = match a.out {
         Some(p) => std::fs::write(&p, &bytes).map_err(|e| e.to_string()),
-        None => std::io::stdout().write_all(&bytes).map_err(|e| e.to_string()),
+        None => std::io::stdout()
+            .write_all(&bytes)
+            .map_err(|e| e.to_string()),
     };
     if let Err(msg) = write_result {
         eprintln!("error: write failed: {msg}");

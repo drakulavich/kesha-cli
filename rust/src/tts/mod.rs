@@ -368,15 +368,11 @@ fn transcode_to(wav_bytes: &[u8], format: OutputFormat) -> Result<Vec<u8>, TtsEr
 /// integer PCM to f32. AVSpeech emits 22.05 kHz 16-bit mono on macOS today,
 /// but we keep this generic so a future sidecar change doesn't break us.
 #[cfg(all(feature = "system_tts", target_os = "macos"))]
-fn wav_to_mono_f32<R: std::io::Read>(
-    mut reader: hound::WavReader<R>,
-) -> anyhow::Result<Vec<f32>> {
+fn wav_to_mono_f32<R: std::io::Read>(mut reader: hound::WavReader<R>) -> anyhow::Result<Vec<f32>> {
     let spec = reader.spec();
     let channels = spec.channels as usize;
     let samples: Vec<f32> = match spec.sample_format {
-        hound::SampleFormat::Float => reader
-            .samples::<f32>()
-            .collect::<Result<Vec<f32>, _>>()?,
+        hound::SampleFormat::Float => reader.samples::<f32>().collect::<Result<Vec<f32>, _>>()?,
         hound::SampleFormat::Int => {
             let max = (1i64 << (spec.bits_per_sample - 1)) as f32;
             reader

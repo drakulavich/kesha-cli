@@ -47,6 +47,23 @@ jobs:
           Write-Host "MSVC linker: $linkPath"
           Add-Content -Path $env:GITHUB_ENV -Value "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$linkPath"
 
+      - name: Install system audio deps (Opus)
+        # audiopus_sys 0.2.2 / opusic-sys 0.6.0 (added in #224 for OGG/Opus
+        # output) try pkg-config first; on miss they fall back to a vendored
+        # libopus build via cmake whose CMakeLists.txt declares
+        # `cmake_minimum_required(VERSION <3.5)`. macOS runners now ship cmake
+        # ≥4 which refuses that — build aborts. Installing system libopus +
+        # pkg-config makes the build script find the lib and skip cmake
+        # entirely.
+        shell: bash
+        run: |
+          if [[ "$RUNNER_OS" == "Linux" ]]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends libopus-dev pkg-config
+          elif [[ "$RUNNER_OS" == "macOS" ]]; then
+            brew install opus pkg-config
+          fi
+
       - name: Cache Kokoro spike models
         uses: actions/cache@v5
         with:
