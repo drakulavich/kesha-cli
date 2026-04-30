@@ -9,9 +9,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # windows-latest temporarily dropped — vosk-tts-rs transitive
-        # MSVC link conflicts (LNK2005). Restore when #216 lands.
-        os: [macos-14, ubuntu-latest]
+        os: [macos-14, ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     env:
       KOKORO_CACHE: ${{ github.workspace }}/.kokoro-spike
@@ -27,8 +25,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: rust
-
-      - uses: ./.github/actions/install-protoc
 
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
