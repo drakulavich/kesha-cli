@@ -4,7 +4,6 @@ import { getEngineBinPath, getEngineCapabilities } from "./engine";
 import { log } from "./log";
 import { streamResponseToFile } from "./progress";
 import {
-  getVersionMarkerPath,
   readInstalledEngineVersion,
   writeInstalledEngineVersion,
 } from "./engine-version-marker";
